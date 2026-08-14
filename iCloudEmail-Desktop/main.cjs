@@ -2,10 +2,11 @@
 /*
  * Electron shell for the iCloud Hide My Email manager.
  *
- * The Fastify backend uses native modules (better-sqlite3) and Playwright, so
- * rather than run it inside Electron's (different-ABI) main process, we spawn
- * it as a child using the system Node runtime, then point a BrowserWindow at
- * the same-origin UI it serves. All state lives under Electron's userData dir.
+ * better-sqlite3 is a native module compiled against Node's ABI, which differs
+ * from Electron's — so the Fastify backend does not run inside the main process.
+ * It is spawned as a child of a real Node runtime (found on PATH in dev, a copy
+ * shipped in resources/ when packaged), and the BrowserWindow then loads the
+ * same-origin UI that backend serves. All state lives under the userData dir.
  */
 const { app, BrowserWindow, shell, Menu, clipboard, dialog, nativeImage } = require('electron');
 const { spawn } = require('node:child_process');
@@ -21,9 +22,10 @@ const IS_MAC = process.platform === 'darwin';
 let serverProc = null;
 let startupError = null;
 
-// Packaged builds take this from productName; setting it explicitly keeps the
-// macOS menu bar and Dock from showing the raw package name in dev runs. Must
-// come before setPath, which pins userData regardless of the app name.
+// Packaged builds get this from productName, but a dev run would otherwise show
+// the raw package name ("@icloud-hme/desktop") in the macOS menu bar and Dock.
+// Note setName also moves the *default* userData path — harmless here only
+// because the line below overrides that path explicitly.
 app.setName('iCloud Email Manager');
 
 // Keep development runs and installed builds on the same persistent data:
@@ -282,9 +284,11 @@ app.on('window-all-closed', () => {
 app.on('quit', () => {
   if (serverProc) {
     try {
-      // SIGTERM lets the backend close SQLite and the schedulers cleanly; it is
-      // ignored on Windows, where kill() terminates the process outright.
-      serverProc.kill(IS_WIN ? undefined : 'SIGTERM');
+      // On POSIX the backend's SIGTERM handler stops the schedulers, closes
+      // Fastify and closes SQLite before exiting (see BackEnd/src/index.ts).
+      // Windows has no signals: Node ignores the name and calls TerminateProcess,
+      // so the child dies immediately — SQLite's WAL is crash-safe either way.
+      serverProc.kill('SIGTERM');
     } catch {
       /* ignore */
     }

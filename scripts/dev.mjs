@@ -19,7 +19,8 @@ const workspaces = [
 const children = workspaces.map(({ name, workspace }) => {
   const child = spawn(npm, ['run', 'dev', '--workspace', workspace], {
     stdio: 'inherit',
-    // cmd.exe resolves npm.cmd through the shell; POSIX spawns npm directly.
+    // Node refuses to spawn a .cmd/.bat directly (throws EINVAL) unless a shell
+    // is used, so Windows needs npm.cmd + shell; POSIX spawns the npm binary.
     shell: isWindows,
     windowsHide: true,
   });
@@ -42,7 +43,9 @@ function shutdown(code) {
   for (const child of children) {
     if (child.exitCode === null && !child.killed) {
       try {
-        child.kill(isWindows ? undefined : 'SIGTERM');
+        // Terminates on both platforms: a real signal on POSIX, TerminateProcess
+        // on Windows (where the signal name is ignored).
+        child.kill('SIGTERM');
       } catch {
         /* already gone */
       }
