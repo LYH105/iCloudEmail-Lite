@@ -8,6 +8,7 @@
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A5%2020-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![local only](https://img.shields.io/badge/network-127.0.0.1%20only-blue)](#security-notes)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![stars](https://img.shields.io/github/stars/LYH105/iCloudEmail-Lite?style=flat&logo=github&label=Star&color=f5c518)](https://github.com/LYH105/iCloudEmail-Lite/stargazers)
 
 [中文](README.md) · English
@@ -401,4 +402,4 @@ This started as a tool I built for myself; it is open source so that anyone with
 - The HME endpoints are **private** Apple APIs; fields are matched against the behaviour of the official web client (see [maxktz/icloud-hidemyemail-generator](https://github.com/maxktz/icloud-hidemyemail-generator)). Apple's actual responses are the source of truth, and this project may break at any time.
 - Shard hostnames like `p68-maildomainws` differ per account, so the `premiummailsettings` service URL is discovered dynamically via `validate` rather than hardcoded.
 - Use it only for Apple accounts **you own**. You accept the risk to your accounts (including Apple's anti-abuse measures and terms of service).
-- No open-source license has been chosen for this repository yet; until a `LICENSE` file is added, all rights are reserved.
+- Released under the [MIT License](LICENSE): free to use, modify, distribute and sell, the only condition being that the copyright notice and licence text travel with it. The software is provided "as is", without warranty of any kind.

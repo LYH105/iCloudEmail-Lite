@@ -8,6 +8,7 @@
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A5%2020-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![local only](https://img.shields.io/badge/network-127.0.0.1%20only-blue)](#安全说明)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![stars](https://img.shields.io/github/stars/LYH105/iCloudEmail-Lite?style=flat&logo=github&label=Star&color=f5c518)](https://github.com/LYH105/iCloudEmail-Lite/stargazers)
 
 中文 · [English](README.en.md)
@@ -401,4 +402,4 @@ npx tsx scripts/api-smoketest.ts     # 用 Fastify inject 跑通鉴权/作用域
 - HME 接口为 Apple **非公开**接口，字段依据官方 Web 客户端行为对齐（参见 [maxktz/icloud-hidemyemail-generator](https://github.com/maxktz/icloud-hidemyemail-generator)），Apple 变更时以其实际返回为准，本项目可能随时失效。
 - `p68-maildomainws` 这类分片地址因账户而异，本系统通过 `validate` 动态发现 `premiummailsettings` 服务地址，不硬编码分片。
 - 仅供管理**你自己拥有的** Apple 账户使用。使用本项目即表示你自行承担账户风险（包括但不限于 Apple 的风控与条款约束）。
-- 本仓库尚未指定开源许可证，在添加 `LICENSE` 之前默认保留所有权利。
+- 本项目以 [MIT 许可证](LICENSE)开源：可自由使用、修改、分发乃至商用，唯一要求是保留版权声明与许可证原文。软件按「原样」提供，不含任何担保。
