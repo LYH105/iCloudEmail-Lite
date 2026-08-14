@@ -1,0 +1,27 @@
+{
+  "name": "icloud-hme-manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "iCloud Hide My Email multi-account management system (Electron desktop app for macOS & Windows)",
+  "workspaces": [
+    "iCloudEmail-BackEnd",
+    "iCloudEmail-FrontEnd",
+    "iCloudEmail-Desktop"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "npm run dev --workspace @icloud-hme/server",
+    "dev:web": "npm run dev --workspace @icloud-hme/web",
+    "build": "npm run build --workspace @icloud-hme/server && npm run build --workspace @icloud-hme/web",
+    "start": "npm run start --workspace @icloud-hme/server",
+    "desktop": "npm run app --workspace @icloud-hme/desktop",
+    "package:mac": "npm run package:mac --workspace @icloud-hme/desktop",
+    "package:win": "npm run package:win --workspace @icloud-hme/desktop",
+    "dist:mac": "npm run dist:mac --workspace @icloud-hme/desktop",
+    "dist:win": "npm run dist:win --workspace @icloud-hme/desktop",
+    "typecheck": "npm run typecheck --workspace @icloud-hme/server && npm run typecheck --workspace @icloud-hme/web"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

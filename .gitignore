@@ -1,0 +1,28 @@
+node_modules/
+dist/
+build/
+release/
+iCloudEmail-Desktop/.runtime/
+*.log
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+
+# Local env & secrets
+.env
+.env.local
+iCloudEmail-BackEnd/.env
+accounts-export.json
+
+# SQLite database & sessions
+data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+Thumbs.db

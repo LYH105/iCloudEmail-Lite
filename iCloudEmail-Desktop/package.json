@@ -1,0 +1,69 @@
+{
+  "name": "@icloud-hme/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "build:deps": "npm run build --workspace @icloud-hme/server && npm run build --workspace @icloud-hme/web",
+    "app": "npm run build:deps && electron .",
+    "prepare:runtime": "node scripts/prepare-runtime.cjs",
+    "package:win": "npm run build:deps && npm run prepare:runtime && electron-builder --dir --win --x64",
+    "package:mac": "npm run build:deps && npm run prepare:runtime && electron-builder --dir --mac",
+    "dist:win": "npm run build:deps && npm run prepare:runtime && electron-builder --win nsis --x64",
+    "dist:mac": "npm run build:deps && npm run prepare:runtime && electron-builder --mac dmg zip"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.icloud-hme.desktop",
+    "productName": "iCloud Email Manager",
+    "asar": true,
+    "//": "The backend runs in a real Node child process, not in Electron, so its native modules (better-sqlite3) must stay built for Node's ABI — never rebuild them for Electron.",
+    "npmRebuild": false,
+    "directories": {
+      "output": "../release"
+    },
+    "files": [
+      "main.cjs",
+      "icon.ico",
+      "icon.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".runtime/server",
+        "to": "server"
+      },
+      {
+        "from": ".runtime/web",
+        "to": "web"
+      },
+      {
+        "from": ".runtime/node",
+        "to": "node"
+      }
+    ],
+    "win": {
+      "icon": "build-icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "icon": "build-icon.icns",
+      "category": "public.app-category.productivity",
+      "//": "Arch is deliberately left to electron-builder's default (the host's): the bundled Node runtime and better-sqlite3 are native, so an Apple Silicon machine can only build an Apple Silicon app. Signing is also left to the default — no Developer ID is needed for a local build; set CSC_IDENTITY_AUTO_DISCOVERY=false to skip it entirely.",
+      "target": ["dmg", "zip"]
+    }
+  }
+}
