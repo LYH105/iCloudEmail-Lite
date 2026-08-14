@@ -23,10 +23,22 @@ A self-hosted manager for Apple's iCloud Web / Hide My Email (HME) API. It handl
 
 > **This project is built for local desktop use**: the Electron shell starts the backend internally and binds to `127.0.0.1` only. There is nothing to deploy to a server and nothing exposed to the internet.
 
-<!-- Consider adding 2-3 UI screenshots here, e.g.:
+> Account addresses in the screenshots are demo placeholders.
+
 ![Accounts](docs/screenshot-accounts.png)
+
+<details>
+<summary>More screenshots (alias library / recent mail)</summary>
+
+**Alias library** — the cross-account alias pool, with search, filtering by account/mark, a "used" toggle and per-alias mail fetch:
+
 ![Alias library](docs/screenshot-library.png)
--->
+
+**Recent mail** — one inbox across every alias, each message tagged with its receiving alias and owning account; codes and login links are copyable:
+
+![Recent mail](docs/screenshot-mail.png)
+
+</details>
 
 ## Contents
 
