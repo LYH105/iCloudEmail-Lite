@@ -1,417 +1,353 @@
 <div align="center">
 
-# iCloud Hide My Email 多账户管理系统
+# iCloud Hide My Email Manager
 
-**跨平台（macOS / Windows）本地桌面应用** —— 多 Apple ID 登录、Hide My Email 别名批量管理、跨别名收件与验证码提取，全部数据只存在你自己的电脑上。
+**A cross-platform (macOS / Windows) local desktop app** — multiple Apple IDs, bulk Hide My Email alias management, a cross-alias inbox and verification-code extraction. All data stays on your own machine.
 
-[![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)](#平台支持)
+[![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)](#platform-support)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A5%2020-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
-[![local only](https://img.shields.io/badge/network-127.0.0.1%20only-blue)](#安全说明)
+[![local only](https://img.shields.io/badge/network-127.0.0.1%20only-blue)](#security-notes)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![stars](https://img.shields.io/github/stars/LYH105/iCloudEmail-Lite?style=flat&logo=github&label=Star&color=f5c518)](https://github.com/LYH105/iCloudEmail-Lite/stargazers)
 
-中文 · [English](README.en.md)
+[中文](README.zh-CN.md) · English
 
-**觉得好用的话，点个 ⭐ Star 支持一下** —— 也方便你下次直接从「Your stars」里找回来。
+**If you find this useful, a ⭐ Star goes a long way** — and makes it easy to find again from "Your stars".
 
 </div>
 
 ---
 
-对接 Apple iCloud Web / Hide My Email（HME）接口的自托管管理系统。支持多账户登录会话、别名的**生成 / 预留 / 停用 / 重新启用 / 删除 / 改标签备注**、API Key 鉴权，以及通过 IMAP 拉取验证码。所有对 Apple 的请求/响应字段与官方 Web 客户端**严格对齐**。
+A self-hosted manager for Apple's iCloud Web / Hide My Email (HME) API. It handles multi-account login sessions, alias **generate / reserve / deactivate / reactivate / delete / relabel**, API-key authentication, and pulls verification codes over IMAP. Every request and response field is **matched strictly** against Apple's official web client.
 
-> **本项目面向本机桌面使用**：Electron 外壳内启后端，只监听 `127.0.0.1`，没有任何需要部署到服务器、暴露到公网的部分。
+> **This project is built for local desktop use**: the Electron shell starts the backend internally and binds to `127.0.0.1` only. There is nothing to deploy to a server and nothing exposed to the internet.
 
-> 截图中的账户地址为演示用占位地址。
+> Account addresses in the screenshots are demo placeholders.
 
-![账户页](docs/screenshot-accounts.png)
+![Accounts](docs/screenshot-accounts.png)
 
 <details>
-<summary>更多界面截图（邮箱库 / 最近邮件）</summary>
+<summary>More screenshots (alias library / recent mail)</summary>
 
-**邮箱库** —— 跨账户的别名池，支持搜索、按账户/标记筛选、「已用」开关、单别名收件：
+**Alias library** — the cross-account alias pool, with search, filtering by account/mark, a "used" toggle and per-alias mail fetch:
 
-![邮箱库](docs/screenshot-library.png)
+![Alias library](docs/screenshot-library.png)
 
-**最近邮件** —— 跨所有别名的总收件箱，每封标注收件别名与所属账户，验证码和登录链接可直接复制：
+**Recent mail** — one inbox across every alias, each message tagged with its receiving alias and owning account; codes and login links are copyable:
 
-![最近邮件](docs/screenshot-mail.png)
+![Recent mail](docs/screenshot-mail.png)
 
 </details>
 
-## 目录
+## Contents
 
-- [功能](#功能)
-- [平台支持](#平台支持)
-- [快速开始](#快速开始)
-- [打包成安装包](#打包成安装包)
-- [数据存放位置](#数据存放位置)
-- [鉴权方式：SRP-6a 直接登录](#鉴权方式srp-6a-直接登录)
-- [目录结构](#目录结构)
-- [与 Apple API 的字段对齐](#与-apple-api-的字段对齐)
-- [本系统的 REST API](#本系统的-rest-api)
-- [登录流程说明](#登录流程说明)
-- [IMAP 验证码](#imap-验证码)
-- [安全说明](#安全说明)
-- [常见问题](#常见问题)
-- [开发自测](#开发自测)
-- [支持一下](#支持一下)
-- [免责声明](#免责声明)
+- [Features](#features)
+- [Platform support](#platform-support)
+- [Getting started](#getting-started)
+- [Building installers](#building-installers)
+- [Where data is stored](#where-data-is-stored)
+- [Authentication: direct SRP-6a login](#authentication-direct-srp-6a-login)
+- [Repository layout](#repository-layout)
+- [Field alignment with Apple's API](#field-alignment-with-apples-api)
+- [This project's REST API](#this-projects-rest-api)
+- [Login flow](#login-flow)
+- [IMAP verification codes](#imap-verification-codes)
+- [Security notes](#security-notes)
+- [Developer self-checks](#developer-self-checks)
+- [Support the project](#support-the-project)
+- [Disclaimer](#disclaimer)
 
-## 功能
+## Features
 
-- **桌面应用（Electron）**：iOS 18 风格界面（Tailwind），内部启动后端并同源加载，**本地免 API Key**，双击即用。
-- **多账户**：SRP 登录 + 短信验证码，Apple 信任令牌保存后约 30 天内可免 2FA 静默重登；会话过期时依次尝试 Cookie 静默刷新 → 存储密码 + 信任令牌无头重登 → 才提示重新验证。后台 session keeper 定期保活。
-- **Hide My Email**：`generate` / `reserve` / `list` / `updateMetaData` / `deactivate` / `reactivate` / `delete` / `updateForwardTo`，本地镜像缓存；支持**一次批量生成 N 个**（默认 5），批量过程中会话过期会自动刷新 Cookie 后继续。
-- **邮箱库**：跨账户的别名池，带搜索、按账户/标记筛选、「已用」开关、单别名收件；`aliasSyncScheduler` 后台自动同步。
-- **最近邮件**：一个跨所有别名的总收件箱（`GET /api/aliases/mail-library`，默认最近 24h），每封标注所属别名，自动 + 手动刷新。
-- **标记规则**：按发件人/主题等规则自动给别名打标（已注册/已开通…），`markScanner` 定期扫描收件箱套用；规则支持导入导出、重命名、清理孤儿标记。
-- **API Key**：SHA-256 存储，read / write 作用域，首个 Key 免鉴权引导创建。
-- **IMAP 验证码**：连接任意 IMAP（默认 iCloud `imap.mail.me.com:993`），拉取近期邮件并启发式提取验证码/登录链接，可按收件别名过滤。
-- **敏感字段加密**：会话 Cookie、Apple ID 密码、IMAP 密码在 SQLite 中以 AES-256-GCM 加密存储。
+- **Desktop app (Electron)**: an iOS 18-style UI (Tailwind) served same-origin by the backend the app starts itself. **No API key needed locally** — double-click and go.
+- **Multiple accounts**: SRP login + SMS code. Apple's trust token is stored, so silent re-login without 2FA works for roughly 30 days. When a session expires the app tries, in order: silent cookie refresh → headless re-login with the stored password + trust token → only then does it ask you to verify again. A background session keeper keeps sessions warm.
+- **Hide My Email**: `generate` / `reserve` / `list` / `updateMetaData` / `deactivate` / `reactivate` / `delete` / `updateForwardTo`, mirrored into a local cache. **Batch-generate N aliases at once** (default 5); if the session expires mid-batch, cookies are refreshed and the batch continues.
+- **Alias library**: a cross-account alias pool with search, filtering by account/mark, a "used" toggle, and per-alias mail fetch. `aliasSyncScheduler` syncs it in the background.
+- **Recent mail**: one inbox across every alias (`GET /api/aliases/mail-library`, last 24h by default), each message tagged with the alias it arrived at, refreshed automatically and on demand.
+- **Mark rules**: rules on sender/subject that automatically tag aliases (registered / activated / …); `markScanner` scans inboxes on a timer and applies them. Rules can be exported, imported, renamed, and orphaned marks cleaned up.
+- **API keys**: stored as SHA-256, with read / write scopes. Creating the very first key is unauthenticated bootstrap.
+- **IMAP verification codes**: connects to any IMAP server (iCloud `imap.mail.me.com:993` by default), fetches recent mail and heuristically extracts verification codes / login links, optionally filtered by recipient alias.
+- **Encrypted secrets**: session cookies, Apple ID passwords and IMAP passwords are stored AES-256-GCM encrypted in SQLite.
 
-## 平台支持
+## Platform support
 
-同一套代码同时支持 macOS 与 Windows，差异只在下面这张表里：
+One codebase runs on both macOS and Windows. The differences are exactly these:
 
-|                    | macOS                                             | Windows                                     |
-| ------------------ | ------------------------------------------------- | ------------------------------------------- |
-| 系统要求           | macOS 11 Big Sur 及以上（Apple Silicon / Intel）  | Windows 10 (1809) 及以上，x64               |
-| 双击启动脚本       | `启动iCloud邮箱.command`                          | `启动iCloud邮箱.bat`                        |
-| 数据目录           | `~/Library/Application Support/@icloud-hme/desktop` | `%APPDATA%\@icloud-hme\desktop`             |
-| Playwright 默认浏览器 | Google Chrome（`chrome`）                       | Microsoft Edge（`msedge`）                  |
-| 打包命令           | `npm run dist:mac` → `.dmg` / `.zip`              | `npm run dist:win` → NSIS 安装包 `.exe`     |
-| 菜单栏             | 原生菜单（⌘C / ⌘V / ⌘Q 可用）                     | 无菜单栏，快捷键在窗口内                    |
+|                        | macOS                                               | Windows                                    |
+| ---------------------- | --------------------------------------------------- | ------------------------------------------ |
+| Requirements           | macOS 11 Big Sur or later (Apple Silicon / Intel)   | Windows 10 (1809) or later, x64            |
+| Double-click launcher  | `启动iCloud邮箱.command`                            | `启动iCloud邮箱.bat`                       |
+| Data directory         | `~/Library/Application Support/@icloud-hme/desktop` | `%APPDATA%\@icloud-hme\desktop`            |
+| Playwright browser     | Google Chrome (`chrome`)                            | Microsoft Edge (`msedge`)                  |
+| Packaging              | `npm run dist:mac` → `.dmg` / `.zip`                | `npm run dist:win` → NSIS `.exe` installer |
+| Menu bar               | Native menu (⌘C / ⌘V / ⌘Q work)                     | No menu bar; shortcuts live in the window  |
 
-> **打包必须在目标系统上进行**：应用会随附一份 Node 运行时，`better-sqlite3` 也是原生模块，两者都与操作系统 + CPU 架构绑定。macOS 上打不出 Windows 包，反之亦然；Apple Silicon 上也打不出 Intel 包。
+> **Packages must be built on the OS they target.** The app ships a copy of the Node runtime, and `better-sqlite3` is a native module — both are tied to the OS *and* CPU architecture. You cannot build a Windows package on macOS or vice versa, and an Apple Silicon Mac cannot build an Intel package.
 
-## 快速开始
+## Getting started
 
-### 1. 前置条件
+### 1. Prerequisites
 
-- **Node.js ≥ 20**（[下载](https://nodejs.org/)）。macOS 也可用 `brew install node`。
-- 一个安装好的 Chromium 内核浏览器：macOS 上是 **Google Chrome**，Windows 上是系统自带的 **Edge**。仅用于 Cookie 刷新和「打开网页」，没有也能登录（见[常见问题](#常见问题)）。
-- 编译工具链**通常不需要**：`better-sqlite3` 对 macOS(arm64/x64) 与 Windows(x64) 提供预编译包。万一需要现场编译，macOS 装 `xcode-select --install`，Windows 装 Visual Studio Build Tools（C++ 桌面开发）。
+- **Node.js ≥ 20** ([download](https://nodejs.org/)).
+- A Chromium-based browser: **Google Chrome** on macOS or **Microsoft Edge** on Windows. It is used for cookie refresh and opening authenticated Apple pages; account login itself uses SRP and does not open a browser.
 
-### 2. 安装依赖
+### 2. Install dependencies
 
 ```bash
 npm install
 ```
 
-> ⚠️ **跨系统拷贝过来的仓库**（比如从 Windows 复制到 Mac）：`node_modules/` 里是另一个平台的原生二进制，必须先删掉再装。
->
-> ```bash
-> rm -rf node_modules */node_modules && npm install
-> ```
->
-> Windows PowerShell 对应：`Remove-Item -Recurse -Force node_modules, */node_modules; npm install`
-
-> 🇨🇳 中国大陆下载 Electron 二进制可能很慢/失败，可用镜像：
->
-> ```bash
-> ELECTRON_MIRROR=https://registry.npmmirror.com/-/binary/electron/ npm install
-> ```
->
-> Windows PowerShell：`$env:ELECTRON_MIRROR="https://registry.npmmirror.com/-/binary/electron/"; npm install`
-
-### 3. 方式一：桌面应用（推荐）
+### 3. Option A — desktop app (recommended)
 
 ```bash
-npm run desktop      # 构建 server + web，然后启动 Electron 窗口
+npm run desktop      # builds server + web, then opens the Electron window
 ```
 
-也可以在文件管理器里双击启动脚本：macOS 是 `启动iCloud邮箱.command`（首次可能需要 `chmod +x 启动iCloud邮箱.command`），Windows 是 `启动iCloud邮箱.bat`。
+You can also double-click the launcher in your file manager: `启动iCloud邮箱.command` on macOS or `启动iCloud邮箱.bat` on Windows.
 
-桌面应用会用系统 Node 子进程启动后端（固定 `127.0.0.1:8787`），并把界面同源加载进窗口。数据库、浏览器 profile、加密主密钥都存在系统的 userData 目录（见[数据存放位置](#数据存放位置)），主密钥首次运行自动生成并持久化。桌面模式为本地单用户，**免 API Key**。
+The desktop app spawns the backend as a system Node child process (fixed at `127.0.0.1:8787`) and loads the UI same-origin into the window. The database, browser profiles and the encryption master key live in the OS userData directory (see [Where data is stored](#where-data-is-stored)); the master key is generated and persisted on first run. Desktop mode is single-user and local, so **no API key is required**.
 
-### 4. 方式二：浏览器开发模式
+### 4. Option B — browser dev mode
 
 ```bash
-npm run dev          # 同时起后端和前端（macOS / Windows 通用）
+npm run dev          # starts backend and frontend together (macOS and Windows alike)
 ```
 
-或者分开起：
+Or start them separately:
 
 ```bash
-npm run dev:server   # 后端 http://127.0.0.1:8787
-npm run dev:web      # 前端 http://localhost:5173（已配置代理到后端）
+npm run dev:server   # backend at http://127.0.0.1:8787
+npm run dev:web      # frontend at http://localhost:5173 (proxied to the backend)
 ```
 
-浏览器模式首次打开会提示**创建第一个 API Key**（此时免鉴权）；此后所有接口都需携带该 Key，Key 只在创建时明文显示一次。
+In browser mode the first visit prompts you to **create the first API key** (that one call is unauthenticated). Every endpoint afterwards needs the key, and the key is shown in plaintext only once, at creation.
 
-生产构建：`npm run build`（产出 `iCloudEmail-BackEnd/dist` 与 `iCloudEmail-FrontEnd/dist`）。设 `WEB_DIST=../iCloudEmail-FrontEnd/dist` 后 `npm start` 即可单端口同时托管 API 与界面。
+Production build: `npm run build` (emits `iCloudEmail-BackEnd/dist` and `iCloudEmail-FrontEnd/dist`). Set `WEB_DIST=../iCloudEmail-FrontEnd/dist` and `npm start` serves both the API and the UI on a single port.
 
-可配置项见 [`.env.example`](.env.example)（端口、主密钥、会话保活间隔、Playwright 通道等），复制成 `.env` 后修改。
+Configuration lives in [`.env.example`](.env.example) (port, master key, session-keeper interval, Playwright channel, …) — copy it to `.env` and edit.
 
-## 打包成安装包
+## Building installers
 
-产物统一输出到仓库根目录的 `release/`。
+All artifacts land in `release/` at the repository root.
 
-**macOS**（在 Mac 上执行）：
+**macOS** (run on a Mac):
 
 ```bash
-npm run package:mac   # 只产出可直接运行的 .app：release/mac-arm64/iCloud Email Manager.app
-npm run dist:mac      # 产出 .dmg + .zip
+npm run package:mac   # unpacked, runnable app: release/mac-arm64/iCloud Email Manager.app
+npm run dist:mac      # .dmg + .zip
 ```
 
-本地打出来的包**没有 Apple 开发者签名**，别人（包括你自己从 dmg 安装后）首次打开会被 Gatekeeper 拦下。两种处理：
+Local macOS builds are unsigned unless an Apple Developer ID is configured.
 
-```bash
-# 安装后清掉隔离属性
-xattr -dr com.apple.quarantine "/Applications/iCloud Email Manager.app"
-# 若提示「已损坏」，再做一次临时签名
-codesign --force --deep --sign - "/Applications/iCloud Email Manager.app"
-```
-
-如果打包时因钥匙串里的证书导致签名报错，可跳过签名：`CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac`。
-
-**Windows**（在 Windows 上执行）：
+**Windows** (run on Windows):
 
 ```powershell
-npm run package:win   # 免安装绿色版目录：release\win-unpacked\
-npm run dist:win      # NSIS 安装包：release\iCloud Email Manager Setup 0.1.0.exe
+npm run package:win   # portable folder: release\win-unpacked\
+npm run dist:win      # NSIS installer: release\iCloud Email Manager Setup 0.1.0.exe
 ```
 
-## 数据存放位置
+## Where data is stored
 
-| 内容                     | macOS                                                        | Windows                                          |
-| ------------------------ | ------------------------------------------------------------ | ------------------------------------------------ |
-| SQLite 数据库            | `~/Library/Application Support/@icloud-hme/desktop/data/icloud-hme.sqlite` | `%APPDATA%\@icloud-hme\desktop\data\icloud-hme.sqlite` |
-| 浏览器 profile（每账户） | `…/@icloud-hme/desktop/data/profiles/`                       | `…\@icloud-hme\desktop\data\profiles\`           |
-| 加密主密钥               | `…/@icloud-hme/desktop/master.key`                           | `…\@icloud-hme\desktop\master.key`               |
+| What                        | macOS                                                                      | Windows                                                |
+| --------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------ |
+| SQLite database             | `~/Library/Application Support/@icloud-hme/desktop/data/icloud-hme.sqlite` | `%APPDATA%\@icloud-hme\desktop\data\icloud-hme.sqlite` |
+| Browser profiles (per account) | `…/@icloud-hme/desktop/data/profiles/`                                  | `…\@icloud-hme\desktop\data\profiles\`                 |
+| Encryption master key       | `…/@icloud-hme/desktop/master.key`                                         | `…\@icloud-hme\desktop\master.key`                     |
 
-- 开发运行和安装版**共用同一份数据**；卸载（NSIS 卸载 / 把 .app 拖进废纸篓）不会删除该目录，需要清空时手动删。
-- 浏览器开发模式（`npm run dev`）不走 userData，数据落在 `iCloudEmail-BackEnd/data/`。
-- 备份就是备份上面这个目录；**`master.key` 丢了等于所有加密字段作废**（需重新登录、重填 IMAP 密码）。
+- Development runs and installed builds **share the same data**. Uninstalling (NSIS uninstaller, or dragging the .app to the Trash) never removes this directory — delete it by hand when you want a clean slate.
+- Browser dev mode (`npm run dev`) does not use userData; its data goes to `iCloudEmail-BackEnd/data/`.
+- Backing up means backing up that directory. **Losing `master.key` invalidates every encrypted field** — you would have to log in again and re-enter IMAP passwords.
 
-## 鉴权方式：SRP-6a 直接登录
+## Authentication: direct SRP-6a login
 
-后端实现了 Apple 的 **SRP-6a 登录**（[`iCloudEmail-BackEnd/src/icloud/srp.ts`](iCloudEmail-BackEnd/src/icloud/srp.ts)）：填 Apple ID + 密码 → 服务端完成 SRP 握手 → Apple 下发短信验证码 → 回填验证码即登录完成，**全程无浏览器窗口**。登录后提取会话 Cookie、发现 `premiummailsettings` 服务地址与 `dsid`，之后所有 HME 操作用这份 Cookie 直连 iCloud API（对齐 [maxktz/icloud-hidemyemail-generator](https://github.com/maxktz/icloud-hidemyemail-generator)）。
+The backend implements Apple's **SRP-6a login** ([`iCloudEmail-BackEnd/src/icloud/srp.ts`](iCloudEmail-BackEnd/src/icloud/srp.ts)): enter the Apple ID and password → the server completes the SRP handshake → Apple sends an SMS code → entering the code finishes the login, **with no browser window at any point**. After login it extracts the session cookies and discovers the `premiummailsettings` service URL and `dsid`; every HME operation afterwards talks to the iCloud API directly with those cookies (aligned with [maxktz/icloud-hidemyemail-generator](https://github.com/maxktz/icloud-hidemyemail-generator)).
 
-Playwright 只在两处出现：会话过期时的 **Cookie 刷新快路径**，以及「打开网页」（打开一个已登录的 Apple 页面，比如去生成应用专用密码）。
+Playwright appears in exactly two places: the **cookie-refresh fast path** when a session goes stale, and "open page" (opening a signed-in Apple page, e.g. to create an app-specific password).
 
-## 目录结构
+## Repository layout
 
 ```
 iCloudEmail-Lite/
-├─ iCloudEmail-Desktop/    Electron 桌面外壳 —— 应用本体，打包成 .app / .exe
-│  ├─ main.cjs             开窗口、spawn 后端子进程、loadURL 到本地后端（含 mac/win 差异处理）
-│  ├─ build-icon.icns      macOS 应用图标
-│  ├─ build-icon.ico       Windows 应用图标
-│  └─ scripts/             prepare-runtime.cjs：打包前把后端/前端/node 产物收进 .runtime
-├─ iCloudEmail-BackEnd/    后端 (Node.js + TypeScript + Fastify + better-sqlite3)
+├─ iCloudEmail-Desktop/    Electron shell — the app itself, packaged into .app / .exe
+│  ├─ main.cjs             window, backend child process, loadURL to the local backend (incl. mac/win differences)
+│  ├─ build-icon.icns      macOS app icon
+│  ├─ build-icon.ico       Windows app icon
+│  └─ scripts/             prepare-runtime.cjs: collects backend/frontend/node output into .runtime before packaging
+├─ iCloudEmail-BackEnd/    Backend (Node.js + TypeScript + Fastify + better-sqlite3)
 │  ├─ src/
-│  │  ├─ config.ts         环境配置
-│  │  ├─ crypto/secrets.ts AES-256-GCM 字段加密 + API Key 哈希
-│  │  ├─ db/index.ts       SQLite 连接 + 建表 + 增量迁移
+│  │  ├─ config.ts         environment configuration
+│  │  ├─ crypto/secrets.ts AES-256-GCM field encryption + API-key hashing
+│  │  ├─ db/index.ts       SQLite connection + schema + incremental migrations
 │  │  ├─ icloud/
-│  │  │  ├─ types.ts       与 Apple API 严格对齐的类型
-│  │  │  ├─ srp.ts         SRP-6a 登录握手（无浏览器）
-│  │  │  ├─ browser.ts     Playwright：Cookie 刷新快路径 / 打开已登录页面
-│  │  │  ├─ hme.ts         HME 操作客户端（用 cookie 直连）
-│  │  │  └─ constants.ts   端点 / UA / 常量
-│  │  ├─ imap/             imapflow 客户端 + 验证码/登录链接提取
-│  │  ├─ services/         accounts / aliases / apiKeys / imap / marks 业务层
-│  │  │                    + 三个后台调度器
-│  │  └─ api/              Fastify 路由 + API Key 中间件
-│  └─ scripts/             browser-check / login-flow-check / api-smoketest (开发自测)
-├─ iCloudEmail-FrontEnd/   前端 (React + Vite + TypeScript 管理台)
-│  └─ src/pages/           账户 / 邮箱库 / 最近邮件 / API Key
-└─ scripts/dev.mjs         跨平台并行启动前后端（替代 shell 的 `&`）
+│  │  │  ├─ types.ts       types matched strictly against Apple's API
+│  │  │  ├─ srp.ts         SRP-6a login handshake (no browser)
+│  │  │  ├─ browser.ts     Playwright: cookie-refresh fast path / open a signed-in page
+│  │  │  ├─ hme.ts         HME client (direct, cookie-authenticated)
+│  │  │  └─ constants.ts   endpoints / UA / constants
+│  │  ├─ imap/             imapflow client + verification-code and login-link extraction
+│  │  ├─ services/         accounts / aliases / apiKeys / imap / marks business layer
+│  │  │                    + three background schedulers
+│  │  └─ api/              Fastify routes + API-key middleware
+│  └─ scripts/             browser-check / login-flow-check / api-smoketest (developer self-checks)
+├─ iCloudEmail-FrontEnd/   Frontend (React + Vite + TypeScript console)
+│  └─ src/pages/           Accounts / Alias library / Recent mail / API keys
+└─ scripts/dev.mjs         cross-platform parallel dev launcher (replaces the shell `&`)
 ```
 
-### 为什么是三个目录，而不是「前端 + 后端」两个
+### Why three directories instead of just "frontend + backend"
 
-三者职责完全不同：
+They do genuinely different jobs:
 
-- **`iCloudEmail-FrontEnd/`** 是界面（React 打包出来就是一堆静态文件），它不知道「窗口」是什么。
-- **`iCloudEmail-BackEnd/`** 是服务（Fastify + SQLite），它不知道「界面」长什么样。
-- **`iCloudEmail-Desktop/`** 是把上面两样装起来的**外壳**：开一个 1300×920 的窗口、在后台 spawn 出后端进程、让窗口 `loadURL('http://127.0.0.1:8787/')`、把数据固定存到系统 userData 目录、关窗时收尾杀掉后端，以及用 electron-builder 打包出安装包。**没有它就没有桌面应用**，只剩「手动开命令行启后端、再自己去浏览器输地址」。
+- **`iCloudEmail-FrontEnd/`** is the interface (React builds down to static files). It has no idea what a "window" is.
+- **`iCloudEmail-BackEnd/`** is the service (Fastify + SQLite). It has no idea what the interface looks like.
+- **`iCloudEmail-Desktop/`** is the **shell** that assembles the two: it opens a 1300×920 window, spawns the backend in the background, points the window at `http://127.0.0.1:8787/`, pins data to the OS userData directory, kills the backend on close, and builds the installers with electron-builder. **Without it there is no desktop app** — only "start the backend from a terminal, then type an address into a browser".
 
-外壳还必须是独立的 npm 包：better-sqlite3 是原生模块，Electron 主进程与 Node 的 ABI 不同，所以后端**不跑在 Electron 里，而是 spawn 一个真正的 node 子进程**（打包时把 `node` / `node.exe` 一起随附）。electron / electron-builder 这两个大块头开发依赖也因此必须隔离在外壳里，不能混进后端的生产依赖树 —— 打包时后端依赖是按 `npm ls --omit=dev` 精确复制的，并且 `npmRebuild: false` 确保原生模块保持 Node ABI、不被按 Electron ABI 重建。
+The shell also has to be its own npm package: better-sqlite3 is a native module and Electron's main process has a different ABI from Node's, so the backend **does not run inside Electron — it is spawned as a real `node` child process** (with `node` / `node.exe` shipped alongside in packaged builds). That is also why the heavyweight electron / electron-builder dev dependencies must stay isolated in the shell and out of the backend's production dependency tree: packaging copies the backend's dependencies exactly as `npm ls --omit=dev` reports them, and `npmRebuild: false` keeps the native modules on Node's ABI instead of rebuilding them for Electron's.
 
-> npm 包名仍是 `@icloud-hme/server` / `/web` / `/desktop`（`--workspace` 用的是包名，与目录名无关）。打进安装包 resources 里也仍是短名 `server/`、`web/`。
+> The npm package names are still `@icloud-hme/server` / `/web` / `/desktop` (`--workspace` takes package names, not directory names), and the resources inside the installer still use the short names `server/` and `web/`.
 
-## 与 Apple API 的字段对齐
+## Field alignment with Apple's API
 
-HME 请求发往 `{webservices.premiummailsettings.url}` 下，查询参数携带 `clientBuildNumber`、`clientMasteringNumber`、`clientId`、`dsid`。
+HME requests go to `{webservices.premiummailsettings.url}` with `clientBuildNumber`, `clientMasteringNumber`, `clientId` and `dsid` as query parameters.
 
-| 操作       | 方法 | 路径                      | 请求体                          | 响应                                                            |
-| ---------- | ---- | ------------------------- | ------------------------------- | --------------------------------------------------------------- |
-| 生成       | POST | `/v1/hme/generate`        | `{}`                            | `{ success, result: { hme } }`                                  |
-| 预留       | POST | `/v1/hme/reserve`         | `{ hme, label, note }`          | `{ success, result: { hme: HmeEmail } }`                        |
-| 列表       | GET  | `/v2/hme/list`            | —                              | `{ result: { hmeEmails, selectedForwardTo, forwardToEmails } }` |
-| 改元数据   | POST | `/v1/hme/updateMetaData`  | `{ anonymousId, label, note? }` | `{ success }`                                                   |
-| 停用       | POST | `/v1/hme/deactivate`      | `{ anonymousId }`               | `{ success }`                                                   |
-| 重新启用   | POST | `/v1/hme/reactivate`      | `{ anonymousId }`               | `{ success }`                                                   |
-| 删除       | POST | `/v1/hme/delete`          | `{ anonymousId }`               | `{ success }`                                                   |
-| 改转发目标 | POST | `/v1/hme/updateForwardTo` | `{ forwardToEmail }`            | `{ success }`                                                   |
+| Operation       | Method | Path                      | Body                            | Response                                                        |
+| --------------- | ------ | ------------------------- | ------------------------------- | --------------------------------------------------------------- |
+| Generate        | POST   | `/v1/hme/generate`        | `{}`                            | `{ success, result: { hme } }`                                  |
+| Reserve         | POST   | `/v1/hme/reserve`         | `{ hme, label, note }`          | `{ success, result: { hme: HmeEmail } }`                        |
+| List            | GET    | `/v2/hme/list`            | —                              | `{ result: { hmeEmails, selectedForwardTo, forwardToEmails } }` |
+| Update metadata | POST   | `/v1/hme/updateMetaData`  | `{ anonymousId, label, note? }` | `{ success }`                                                   |
+| Deactivate      | POST   | `/v1/hme/deactivate`      | `{ anonymousId }`               | `{ success }`                                                   |
+| Reactivate      | POST   | `/v1/hme/reactivate`      | `{ anonymousId }`               | `{ success }`                                                   |
+| Delete          | POST   | `/v1/hme/delete`          | `{ anonymousId }`               | `{ success }`                                                   |
+| Forward-to      | POST   | `/v1/hme/updateForwardTo` | `{ forwardToEmail }`            | `{ success }`                                                   |
 
-`HmeEmail` 字段（逐字对齐）：`origin`、`anonymousId`、`domain`、`forwardToEmail`、`hme`、`isActive`、`label`、`note`、`createTimestamp`、`recipientMailId`。
+`HmeEmail` fields (verbatim): `origin`, `anonymousId`, `domain`, `forwardToEmail`, `hme`, `isActive`, `label`, `note`, `createTimestamp`, `recipientMailId`.
 
-类型定义见 [`iCloudEmail-BackEnd/src/icloud/types.ts`](iCloudEmail-BackEnd/src/icloud/types.ts)。
+Type definitions live in [`iCloudEmail-BackEnd/src/icloud/types.ts`](iCloudEmail-BackEnd/src/icloud/types.ts).
 
-## 本系统的 REST API
+## This project's REST API
 
-所有 `/api/*` 需在请求头携带 `Authorization: Bearer <API_KEY>`（或 `X-API-Key`）。变更类操作需 `write` 作用域，只读需 `read`。桌面模式下 `DISABLE_AUTH=true`，免鉴权。
+Every `/api/*` call needs `Authorization: Bearer <API_KEY>` (or `X-API-Key`). Mutations require the `write` scope, reads require `read`. Desktop mode sets `DISABLE_AUTH=true` and skips auth entirely.
 
 ```
 GET    /health
-GET    /api/config                     # {authDisabled} —— 是否本地免鉴权模式（免鉴权）
+GET    /api/config                     # {authDisabled} — is local no-auth mode on (unauthenticated)
 
-GET    /api/apikeys/bootstrap          # {needsBootstrap} —— 是否需要创建首个 Key（免鉴权）
-POST   /api/apikeys                    # 创建 Key（无 Key 时免鉴权引导）
+GET    /api/apikeys/bootstrap          # {needsBootstrap} — is a first key needed (unauthenticated)
+POST   /api/apikeys                    # create a key (unauthenticated bootstrap while none exists)
 GET    /api/apikeys
 POST   /api/apikeys/:id/revoke
 DELETE /api/apikeys/:id
 
 GET    /api/accounts
-GET    /api/accounts/:id               # 轮询此接口查看登录进度（status）
+GET    /api/accounts/:id               # poll this for login progress (status)
 POST   /api/accounts/login             # {appleId, password, label?, china?} → {accountId, status:'awaiting_code', phone}
-POST   /api/accounts/:id/verify-code   # {code} 回填短信验证码，完成登录
-POST   /api/accounts/:id/resend-code   # 重发验证码
-POST   /api/accounts/:id/resume-code   # 恢复一个中断的验证码流程
-POST   /api/accounts/:id/relogin       # 重新登录（不带 body 则用已存密码 + 信任令牌静默重登）
-POST   /api/accounts/:id/recover       # 会话过期后的恢复：Cookie 刷新 → 静默重登
-POST   /api/accounts/:id/settings      # 账户设置（标签、存储的密码、自动创建别名等）
-POST   /api/accounts/:id/disabled      # 停用/启用该账户的后台任务
-POST   /api/accounts/:id/open-page     # 用 Playwright 打开一个已登录的 Apple 页面
-POST   /api/accounts/:id/imap          # 绑定该账户的 IMAP（应用专用密码）
+POST   /api/accounts/:id/verify-code   # {code} submit the SMS code, completing login
+POST   /api/accounts/:id/resend-code   # resend the code
+POST   /api/accounts/:id/resume-code   # resume an interrupted code flow
+POST   /api/accounts/:id/relogin       # re-login (with no body: silent re-login via stored password + trust token)
+POST   /api/accounts/:id/recover       # recover an expired session: cookie refresh → silent re-login
+POST   /api/accounts/:id/settings      # account settings (label, stored password, auto-create aliases, …)
+POST   /api/accounts/:id/disabled      # disable/enable this account's background jobs
+POST   /api/accounts/:id/open-page     # open a signed-in Apple page with Playwright
+POST   /api/accounts/:id/imap          # bind this account's IMAP (app-specific password)
 POST   /api/accounts/:id/imap/test
 DELETE /api/accounts/:id/imap
 DELETE /api/accounts/:id
 
-GET    /api/accounts/:id/aliases                       # 本地缓存
-POST   /api/accounts/:id/aliases/sync                  # 从 iCloud 拉取并刷新
+GET    /api/accounts/:id/aliases                       # local cache
+POST   /api/accounts/:id/aliases/sync                  # pull from iCloud and refresh
 POST   /api/accounts/:id/aliases/generate              # → {hme}
 POST   /api/accounts/:id/aliases/reserve               # {hme, label, note?}
-POST   /api/accounts/:id/aliases                       # {label, note?} 生成+预留
-POST   /api/accounts/:id/aliases/batch                 # {count, label?, note?} 批量生成 → {created[], errors[]}
-POST   /api/accounts/:id/aliases/forward-to            # {forwardToEmail} 改转发目标
+POST   /api/accounts/:id/aliases                       # {label, note?} generate + reserve
+POST   /api/accounts/:id/aliases/batch                 # {count, label?, note?} batch generate → {created[], errors[]}
+POST   /api/accounts/:id/aliases/forward-to            # {forwardToEmail} change the forwarding target
 POST   /api/accounts/:id/aliases/:anonymousId/deactivate
 POST   /api/accounts/:id/aliases/:anonymousId/reactivate
-PATCH  /api/accounts/:id/aliases/:anonymousId/used     # {used} 标记「已用」
-GET    /api/accounts/:id/aliases/:anonymousId/mail     # 收该别名的邮件（含验证码/登录链接提取）
-POST   /api/accounts/:id/aliases/scan-marks            # 扫描该账户收件箱并套用标记规则
+PATCH  /api/accounts/:id/aliases/:anonymousId/used     # {used} mark as "used"
+GET    /api/accounts/:id/aliases/:anonymousId/mail     # mail for this alias (incl. code/login-link extraction)
+POST   /api/accounts/:id/aliases/scan-marks            # scan this account's inbox and apply mark rules
 DELETE /api/accounts/:id/aliases/:anonymousId
 
-GET    /api/aliases                     # 跨账户的全部别名（含标记）—— 邮箱库
-GET    /api/aliases/mail-library?sinceMinutes=1440   # 跨别名总收件箱 —— 最近邮件
-POST   /api/aliases/sync                # 同步所有已连邮箱的账户
-POST   /api/aliases/scan-marks          # 全量扫描并套用标记规则
+GET    /api/aliases                     # every alias across accounts (with marks) — the alias library
+GET    /api/aliases/mail-library?sinceMinutes=1440   # cross-alias inbox — recent mail
+POST   /api/aliases/sync                # sync every account that has mail connected
+POST   /api/aliases/scan-marks          # full scan, applying mark rules
 
-GET    /api/mark-rules                  # 标记规则的增删改查
+GET    /api/mark-rules                  # CRUD for mark rules
 POST   /api/mark-rules
 PATCH  /api/mark-rules/:id
 DELETE /api/mark-rules/:id
-GET    /api/mark-rules/orphans          # 没有规则对应的孤儿标记
+GET    /api/mark-rules/orphans          # marks with no matching rule
 POST   /api/mark-rules/marks/rename     # {from, to}
 DELETE /api/mark-rules/marks/:mark
-GET    /api/mark-rules/export           # 规则导出 / 导入
+GET    /api/mark-rules/export           # export / import rules
 POST   /api/mark-rules/import
 
 GET    /api/imap
 POST   /api/imap                        # {label, host, port?, secure?, username, password, accountId?}
 POST   /api/imap/:id/test
 GET    /api/imap/:id/codes?sinceMinutes=&limit=&filterTo=
-POST   /api/imap/fetch                  # 一次性拉取（不落库凭证）
+POST   /api/imap/fetch                  # one-shot fetch (credentials are not stored)
 DELETE /api/imap/:id
 
-GET    /api/auto-create-logs            # 自动创建别名的运行日志
+GET    /api/auto-create-logs            # run log for automatic alias creation
 ```
 
-示例（生成并预留一个别名）：
+Example (generate and reserve one alias):
 
 ```bash
 curl -X POST http://127.0.0.1:8787/api/accounts/$ACCOUNT_ID/aliases \
   -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
-  -d '{"label":"某网站注册","note":"2026-07"}'
+  -d '{"label":"Some signup","note":"2026-07"}'
 ```
 
-Windows PowerShell 里用 `curl.exe`（`curl` 是 `Invoke-WebRequest` 的别名）。
+## Login flow
 
-## 登录流程说明
+1. `POST /api/accounts/login` ("Add account" in the UI: Apple ID + password) → the server completes the **SRP-6a** handshake, Apple sends an SMS code, and the response carries `status: "awaiting_code"` plus the last four digits of the phone number. **No browser window opens.**
+2. `POST /api/accounts/:id/verify-code` submits the code (`resend-code` sends a new one) → session cookies and the trust token are captured, `dsid` and the `premiummailsettings` URL are discovered, and the status becomes `active`.
+3. From then on every HME operation uses the encrypted, persisted cookies against the iCloud API. On `401/421` the app tries, in order: ① a **silent cookie refresh** through the Playwright persistent profile; ② if a login password was saved under "Edit account", a **headless re-login with password + trust token** (Apple's trust skips 2FA for ~30 days); ③ only if both fail is the account marked `session_expired`, which requires entering an SMS code again.
+4. The background session keeper runs that same keep-alive for every account every `SESSION_REFRESH_MINUTES` minutes (default 180), so sessions rarely reach expiry at all.
 
-1. `POST /api/accounts/login`（前端「添加账户」，填 Apple ID + 密码）→ 服务端跑完 **SRP-6a** 握手，Apple 下发短信验证码，接口返回 `status: "awaiting_code"` 和收码手机号后四位。全程**不开浏览器窗口**。
-2. `POST /api/accounts/:id/verify-code` 回填验证码（可 `resend-code` 重发）→ 拿到会话 Cookie 与信任令牌，发现 `dsid` 与 `premiummailsettings` 服务地址，状态变为 `active`。
-3. 之后所有 HME 操作用加密持久化的 Cookie 直连 iCloud API；遇到 `401/421` 依次尝试：① Playwright 持久化 profile **静默刷新** Cookie；② 若在账户「编辑」里存了登录密码，则用**密码 + 信任令牌无头重登**（Apple 信任约 30 天内免 2FA）；③ 仍失败才标记 `session_expired`，此时需要重新输一次短信验证码。
-4. 后台 session keeper 每 `SESSION_REFRESH_MINUTES` 分钟（默认 180）对每个账户跑一遍上述保活，尽量不让会话走到过期。
+## IMAP verification codes
 
-## IMAP 验证码
+- iCloud mailboxes need an **app-specific password** (create one at [appleid.apple.com](https://appleid.apple.com)); the server is `imap.mail.me.com:993` (TLS).
+- The extractor scores 4–8 digit candidates, favouring ones near keywords like "verification/code/验证码/OTP", six-digit ones, and ones appearing in the subject. `filterTo` narrows the search to mail sent to a specific alias.
 
-- iCloud 邮箱需使用**应用专用密码**（在 [appleid.apple.com](https://appleid.apple.com) 生成），服务器 `imap.mail.me.com:993`（TLS）。
-- 提取器对 4–8 位数字打分，优先靠近 "verification/code/验证码/OTP" 等关键词、6 位、以及出现在主题中的候选。`filterTo` 可只看发往某个别名的邮件。
+## Security notes
 
-## 安全说明
+- `SECRET_MASTER_KEY` derives the AES-256-GCM key that encrypts iCloud passwords, sessions and IMAP passwords. **Changing it makes existing ciphertext undecryptable** (you would have to log in / re-enter secrets). Always set a strong random value in production — never the development default.
+- The **Apple ID password** you may optionally save under "Edit account" (used for automatic re-login after session expiry) is likewise AES-256-GCM encrypted in the local SQLite database (the desktop master key lives in `master.key` under userData). Desktop mode is single-user and local, which makes that risk acceptable; "clear stored password" is available at any time.
+- API keys are stored as SHA-256; the plaintext is returned exactly once, at creation.
+- **It listens on `127.0.0.1` only and has no internet-facing component.** All `/api/*` routes require an API key (except in desktop mode, where `DISABLE_AUTH=true`); there is no unauthenticated public entry point.
+- `.env` and `data/` (SQLite) are already in `.gitignore` — never commit them.
 
-- `SECRET_MASTER_KEY` 派生 AES-256-GCM 密钥，加密 iCloud 密码 / 会话 / IMAP 密码。**更换该密钥会使已存密文无法解密**（需重新登录/重填）。生产环境务必设置强随机值，不要用默认开发值。
-- 账户「编辑」里可选存储的 **Apple ID 登录密码**（用于会话过期后自动登录）同样以 AES-256-GCM 加密存于本地 SQLite（桌面版主密钥在 userData 的 `master.key`）；桌面为本地单用户、免鉴权模式，风险可接受，不需要时可随时「清除登录密码」。
-- API Key 以 SHA-256 存储，明文仅在创建时返回一次。
-- **只监听 `127.0.0.1`，没有面向公网的部分**。所有 `/api/*` 一律需要 API Key（桌面模式下 `DISABLE_AUTH=true` 免），不存在任何免鉴权的对外入口。
-- `.env`、`data/`（SQLite）已在 `.gitignore` 中，切勿提交。
-
-## 常见问题
-
-**macOS 提示「无法打开，因为无法验证开发者」/「已损坏」**
-本地构建没有 Apple 签名。执行 `xattr -dr com.apple.quarantine "/Applications/iCloud Email Manager.app"`，仍不行再 `codesign --force --deep --sign - "/Applications/iCloud Email Manager.app"`。
-
-**双击 `.command` 没反应 / 提示权限不足**
-`chmod +x 启动iCloud邮箱.command`。若 Finder 用文本编辑器打开了它，右键 → 打开方式 → 终端。
-
-**启动弹窗「未找到 Node 运行时」**
-开发模式下从 Finder 启动拿不到 Homebrew / nvm 的 PATH。装了 Node 仍报错时，用终端跑 `npm run desktop`，或设 `NODE_BIN=/opt/homebrew/bin/node`。
-
-**`npm install` 报 better-sqlite3 编译错误**
-先确认 Node ≥ 20；macOS 执行 `xcode-select --install`，Windows 安装 Visual Studio Build Tools（含 C++ 桌面开发）后重试。跨系统拷贝仓库时必须先删 `node_modules`。
-
-**Electron 下载卡住不动 / 启动报 "Electron failed to install correctly"**
-国内直连 GitHub Releases 拉 Electron 二进制经常卡死。用镜像重装：
-
-```bash
-ELECTRON_MIRROR=https://registry.npmmirror.com/-/binary/electron/ npm install
-```
-
-⚠️ **如果上一次下载是被中断的**（Ctrl-C、断网、超时），再跑 `npm install` 只会输出 "up to date" 然后什么都不做 —— npm 认为依赖树已完整，不会重跑 electron 的 install 脚本，于是 `node_modules/electron/dist/` 一直是空的。这种情况要强制重跑：
-
-```bash
-npm rebuild electron          # 或者：rm -rf node_modules/electron && npm install
-```
-
-判断是否装好：`ls node_modules/electron/dist` 应该能看到 `Electron.app`（macOS）或 `electron.exe`（Windows），整个 dist 约 250MB。
-
-**端口 8787 被占用**
-macOS/Linux：`lsof -i :8787`；Windows：`netstat -ano | findstr 8787`。或改 `.env` 里的 `PORT`（桌面模式支持环境变量 `PORT`）。
-
-**Playwright 找不到浏览器**
-默认用系统浏览器（Windows→Edge，macOS→Chrome），装上即可。想用内置 Chromium：`npx playwright install chromium`，再设 `PLAYWRIGHT_CHANNEL=chromium`。注意登录本身不需要浏览器，只有 Cookie 刷新和「打开网页」会用到，且「打开网页」需要能看到窗口的桌面环境。
-
-## 开发自测
+## Developer self-checks
 
 ```bash
 cd iCloudEmail-BackEnd
-npx tsx scripts/browser-check.ts     # 验证 Playwright 能启动本机浏览器（Chrome/Edge/Chromium）
-npx tsx scripts/login-flow-check.ts  # 无凭证跑通登录管线（headless 短超时，预期 error）
-npx tsx scripts/api-smoketest.ts     # 用 Fastify inject 跑通鉴权/作用域/校验/路由
+npx tsx scripts/browser-check.ts     # verify Playwright can launch the local browser (Chrome/Edge/Chromium)
+npx tsx scripts/login-flow-check.ts  # exercise the login pipeline without credentials (headless, short timeout — an error is expected)
+npx tsx scripts/api-smoketest.ts     # exercise auth/scopes/validation/routes via Fastify inject
 ```
 
-类型检查：`npm run typecheck`。
+Type checking: `npm run typecheck`.
 
-## 支持一下
+## Support the project
 
-这个项目是纯自用需求做出来的，开源出来是想让有同样需求的人少折腾一点。如果它帮到了你：
+This started as a tool I built for myself; it is open source so that anyone with the same need has less to figure out. If it helped you:
 
-- ⭐ **点个 Star** —— 一秒钟的事，但对一个小项目来说是最实在的鼓励，也让更多同样在找这个东西的人能搜到它
-- 🐛 用着不顺就提 [Issue](https://github.com/LYH105/iCloudEmail-Lite/issues)，报 Bug、提需求都欢迎
-- 🔀 想到更好的实现方式，直接来 PR
+- ⭐ **Star the repo** — it takes a second, it is the most tangible encouragement a small project gets, and it helps the next person looking for exactly this actually find it
+- 🐛 Hit a rough edge? Open an [issue](https://github.com/LYH105/iCloudEmail-Lite/issues) — bug reports and feature requests are both welcome
+- 🔀 Know a better way to do something? PRs are open
 
 <a href="https://github.com/LYH105/iCloudEmail-Lite/stargazers"><img src="https://api.star-history.com/svg?repos=LYH105/iCloudEmail-Lite&type=Date" alt="Star History Chart" width="600"></a>
 
-## 免责声明
+## Disclaimer
 
-- 本项目是**非官方**的第三方工具，与 Apple Inc. 无任何关联，也未获其背书。Apple、iCloud、Hide My Email 是 Apple Inc. 的商标。
-- HME 接口为 Apple **非公开**接口，字段依据官方 Web 客户端行为对齐（参见 [maxktz/icloud-hidemyemail-generator](https://github.com/maxktz/icloud-hidemyemail-generator)），Apple 变更时以其实际返回为准，本项目可能随时失效。
-- `p68-maildomainws` 这类分片地址因账户而异，本系统通过 `validate` 动态发现 `premiummailsettings` 服务地址，不硬编码分片。
-- 仅供管理**你自己拥有的** Apple 账户使用。使用本项目即表示你自行承担账户风险（包括但不限于 Apple 的风控与条款约束）。
-- 本项目以 [MIT 许可证](LICENSE)开源：可自由使用、修改、分发乃至商用，唯一要求是保留版权声明与许可证原文。软件按「原样」提供，不含任何担保。
+- This is an **unofficial** third-party tool. It is not affiliated with, authorized by, or endorsed by Apple Inc. Apple, iCloud and Hide My Email are trademarks of Apple Inc.
+- The HME endpoints are **private** Apple APIs; fields are matched against the behaviour of the official web client (see [maxktz/icloud-hidemyemail-generator](https://github.com/maxktz/icloud-hidemyemail-generator)). Apple's actual responses are the source of truth, and this project may break at any time.
+- Shard hostnames like `p68-maildomainws` differ per account, so the `premiummailsettings` service URL is discovered dynamically via `validate` rather than hardcoded.
+- Use it only for Apple accounts **you own**. You accept the risk to your accounts (including Apple's anti-abuse measures and terms of service).
+- Released under the [MIT License](LICENSE): free to use, modify, distribute and sell, the only condition being that the copyright notice and licence text travel with it. The software is provided "as is", without warranty of any kind.
