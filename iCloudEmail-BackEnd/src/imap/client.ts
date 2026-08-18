@@ -1,5 +1,5 @@
 import { ImapFlow } from 'imapflow';
-import { simpleParser } from 'mailparser';
+import PostalMime from 'postal-mime';
 import { extractCodes, type CodeCandidate } from './codeExtractor.js';
 import { extractLinks, type LinkCandidate } from './linkExtractor.js';
 
@@ -46,8 +46,20 @@ function headerBlock(source: Buffer): string {
 }
 
 function addressText(value: unknown): string {
-  const v = value as { text?: string } | undefined;
-  return v?.text ?? '';
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(addressText).filter(Boolean).join(', ');
+  if (typeof value !== 'object') return '';
+  const v = value as { name?: string; address?: string; group?: unknown[]; text?: string };
+  if (v.text) return v.text;
+  if (v.group) return addressText(v.group);
+  if (!v.address) return '';
+  return v.name ? `${v.name} <${v.address}>` : v.address;
+}
+
+function isoDate(value: string | Date | undefined): string {
+  const parsed = value ? new Date(value) : new Date();
+  return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
 }
 
 /**
@@ -225,7 +237,7 @@ async function fetchOnce(client: ImapFlow, options: FetchOptions): Promise<Fetch
       { uid: true },
     )) {
       if (!message.source) continue;
-      const parsed = await simpleParser(message.source);
+      const parsed = await PostalMime.parse(message.source);
       const to = addressText(parsed.to) || addressText(message.envelope?.to);
       const subject = parsed.subject ?? message.envelope?.subject ?? '';
       const html = typeof parsed.html === 'string' ? parsed.html : null;
@@ -235,7 +247,7 @@ async function fetchOnce(client: ImapFlow, options: FetchOptions): Promise<Fetch
         from: addressText(parsed.from) || addressText(message.envelope?.from),
         to,
         subject,
-        date: (parsed.date ?? message.envelope?.date ?? new Date()).toISOString(),
+        date: isoDate(parsed.date ?? message.envelope?.date),
         text,
         html,
         codes: extractCodes(subject, text || html || ''),
