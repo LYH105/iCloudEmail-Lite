@@ -26,6 +26,7 @@
     "directories": {
       "output": "../release"
     },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "files": [
       "main.cjs",
       "icon.ico",
