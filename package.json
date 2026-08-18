@@ -19,7 +19,8 @@
     "package:win": "npm run package:win --workspace @icloud-hme/desktop",
     "dist:mac": "npm run dist:mac --workspace @icloud-hme/desktop",
     "dist:win": "npm run dist:win --workspace @icloud-hme/desktop",
-    "typecheck": "npm run typecheck --workspace @icloud-hme/server && npm run typecheck --workspace @icloud-hme/web"
+    "typecheck": "npm run typecheck --workspace @icloud-hme/server && npm run typecheck --workspace @icloud-hme/web",
+    "test": "npm run test --workspace @icloud-hme/server"
   },
   "engines": {
     "node": ">=20"
