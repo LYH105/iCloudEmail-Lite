@@ -10,6 +10,7 @@ process.env.SECRET_MASTER_KEY = 'unit-test-master-key-0123456789';
 process.env.DATABASE_PATH = join(dir, 'test.sqlite');
 
 const { closeDb, getDb } = await import('../src/db/index.js');
+const { createConfig, pickConfigForAccount } = await import('../src/services/imapService.js');
 
 test('fresh database migrates to schema v2 with safe defaults and indexes', () => {
   const db = getDb();
@@ -37,6 +38,28 @@ test('fresh database migrates to schema v2 with safe defaults and indexes', () =
   ]) {
     assert.ok(indexes.has(name), `missing index ${name}`);
   }
+});
+
+test('IMAP lookup never falls back to another account mailbox', () => {
+  const db = getDb();
+  const now = Date.now();
+  const insertAccount = db.prepare(
+    `INSERT INTO accounts (id, label, client_id, status, created_at, updated_at)
+     VALUES (?, ?, ?, 'active', ?, ?)`,
+  );
+  insertAccount.run('account-a', 'Account A', 'client-a', now, now);
+  insertAccount.run('account-b', 'Account B', 'client-b', now, now);
+
+  const config = createConfig({
+    accountId: 'account-b',
+    label: 'Account B',
+    host: 'imap.example.test',
+    username: 'b@example.test',
+    password: 'app-password',
+  });
+
+  assert.equal(pickConfigForAccount('account-a'), null);
+  assert.equal(pickConfigForAccount('account-b'), config.id);
 });
 
 test.after(() => {

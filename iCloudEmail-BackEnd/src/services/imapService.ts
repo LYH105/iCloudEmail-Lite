@@ -103,17 +103,12 @@ export function deleteConfigsForAccount(accountId: string): void {
   getDb().prepare('DELETE FROM imap_configs WHERE account_id = ?').run(accountId);
 }
 
-/** Pick an IMAP config for an account: one linked to it, else the first one. */
+/** Pick only the IMAP config explicitly linked to this account. */
 export function pickConfigForAccount(accountId: string): string | null {
-  const db = getDb();
-  const linked = db
+  const linked = getDb()
     .prepare('SELECT id FROM imap_configs WHERE account_id = ? ORDER BY created_at LIMIT 1')
     .get(accountId) as { id: string } | undefined;
-  if (linked) return linked.id;
-  const any = db.prepare('SELECT id FROM imap_configs ORDER BY created_at LIMIT 1').get() as
-    | { id: string }
-    | undefined;
-  return any?.id ?? null;
+  return linked?.id ?? null;
 }
 
 export function listConfigs(): ImapConfigPublic[] {

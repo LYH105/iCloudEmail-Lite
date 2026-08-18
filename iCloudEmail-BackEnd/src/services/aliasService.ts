@@ -352,8 +352,8 @@ function getLocal(accountId: string, anonymousId: string): AliasPublic {
 
 /**
  * Fetch recent inbox messages addressed to a specific alias, via an IMAP config
- * (the one linked to the account, or the first configured). Returns the parsed
- * messages with detected verification codes.
+ * linked to that same account. Returns parsed messages with detected
+ * verification codes and never falls back to another account's mailbox.
  */
 export async function fetchMail(
   accountId: string,
