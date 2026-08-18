@@ -2,6 +2,7 @@ import { getDb } from '../db/index.js';
 import { decryptSecret, encryptSecret } from '../crypto/secrets.js';
 import {
   fetchRecentMessages,
+  invalidateConnection,
   testConnection,
   type FetchedMessage,
   type FetchOptions,
@@ -79,9 +80,10 @@ export function hasConfigForAccount(accountId: string): boolean {
 export function upsertForAccount(accountId: string, input: ImapConfigInput): ImapConfigPublic {
   const db = getDb();
   const existing = db
-    .prepare('SELECT id FROM imap_configs WHERE account_id = ? ORDER BY created_at LIMIT 1')
-    .get(accountId) as { id: string } | undefined;
+    .prepare('SELECT * FROM imap_configs WHERE account_id = ? ORDER BY created_at LIMIT 1')
+    .get(accountId) as ImapConfigRow | undefined;
   if (!existing) return createConfig({ ...input, accountId });
+  invalidateConnection(connectionConfig(existing));
   db.prepare(
     `UPDATE imap_configs SET label = ?, host = ?, port = ?, secure = ?, username = ?,
        password_enc = ?, auth_failed = 0, updated_at = ? WHERE id = ?`,
@@ -100,7 +102,10 @@ export function upsertForAccount(accountId: string, input: ImapConfigInput): Ima
 
 /** Remove all IMAP configs linked to an account. */
 export function deleteConfigsForAccount(accountId: string): void {
-  getDb().prepare('DELETE FROM imap_configs WHERE account_id = ?').run(accountId);
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM imap_configs WHERE account_id = ?').all(accountId) as ImapConfigRow[];
+  for (const row of rows) invalidateConnection(connectionConfig(row));
+  db.prepare('DELETE FROM imap_configs WHERE account_id = ?').run(accountId);
 }
 
 /** Pick only the IMAP config explicitly linked to this account. */
@@ -148,6 +153,9 @@ export function createConfig(input: ImapConfigInput): ImapConfigPublic {
 }
 
 export function deleteConfig(id: string): boolean {
+  const row = getRow(id);
+  if (!row) return false;
+  invalidateConnection(connectionConfig(row));
   return getDb().prepare('DELETE FROM imap_configs WHERE id = ?').run(id).changes > 0;
 }
 

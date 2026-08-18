@@ -1,5 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import PostalMime from 'postal-mime';
+import { createHash } from 'node:crypto';
 import { extractCodes, type CodeCandidate } from './codeExtractor.js';
 import { extractLinks, type LinkCandidate } from './linkExtractor.js';
 
@@ -113,8 +114,10 @@ const pool = new Map<string, ImapFlow>();
 const idleTimers = new Map<string, NodeJS.Timeout>();
 const IDLE_LOGOUT_MS = 3 * 60_000;
 
-function poolKey(cfg: ImapConnectionConfig): string {
-  return `${cfg.host}:${cfg.port}:${cfg.username}`;
+/** @internal Stable pool identity; includes a one-way credential fingerprint. */
+export function connectionPoolKey(cfg: ImapConnectionConfig): string {
+  const credential = createHash('sha256').update(cfg.password).digest('base64url');
+  return `${cfg.host}:${cfg.port}:${cfg.secure ? 1 : 0}:${cfg.username}:${credential}`;
 }
 
 function discard(key: string): void {
@@ -134,8 +137,13 @@ function discard(key: string): void {
   }
 }
 
+/** Close a pooled session before its stored connection settings are changed. */
+export function invalidateConnection(cfg: ImapConnectionConfig): void {
+  discard(connectionPoolKey(cfg));
+}
+
 async function getClient(cfg: ImapConnectionConfig): Promise<ImapFlow> {
-  const key = poolKey(cfg);
+  const key = connectionPoolKey(cfg);
   const timer = idleTimers.get(key);
   if (timer) clearTimeout(timer);
   const existing = pool.get(key);
@@ -153,7 +161,7 @@ async function getClient(cfg: ImapConnectionConfig): Promise<ImapFlow> {
 }
 
 function scheduleIdleLogout(cfg: ImapConnectionConfig): void {
-  const key = poolKey(cfg);
+  const key = connectionPoolKey(cfg);
   const prev = idleTimers.get(key);
   if (prev) clearTimeout(prev);
   const timer = setTimeout(() => discard(key), IDLE_LOGOUT_MS);
@@ -179,7 +187,7 @@ export async function fetchRecentMessages(
       return await fetchOnce(await getClient(cfg), options);
     } catch {
       // The pooled connection may have gone stale — retry once on a fresh one.
-      discard(poolKey(cfg));
+      discard(connectionPoolKey(cfg));
       return await fetchOnce(await getClient(cfg), options);
     }
   } catch (err) {
