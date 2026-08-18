@@ -2,6 +2,8 @@
   "name": "@icloud-hme/desktop",
   "version": "0.1.0",
   "private": true,
+  "description": "Local multi-account manager for iCloud Hide My Email",
+  "author": "LYH105",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
@@ -21,7 +23,6 @@
     "appId": "com.icloud-hme.desktop",
     "productName": "iCloud Email Manager",
     "asar": true,
-    "//": "The backend runs in a real Node child process, not in Electron, so its native modules (better-sqlite3) must stay built for Node's ABI — never rebuild them for Electron.",
     "npmRebuild": false,
     "directories": {
       "output": "../release"
@@ -63,7 +64,6 @@
     "mac": {
       "icon": "build-icon.icns",
       "category": "public.app-category.productivity",
-      "//": "Arch is deliberately left to electron-builder's default (the host's): the bundled Node runtime and better-sqlite3 are native, so an Apple Silicon machine can only build an Apple Silicon app. Signing is also left to the default — no Developer ID is needed for a local build; set CSC_IDENTITY_AUTO_DISCOVERY=false to skip it entirely.",
       "target": ["dmg", "zip"]
     }
   }
