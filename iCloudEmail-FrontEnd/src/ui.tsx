@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { CodeCandidate, LinkCandidate } from './types';
+import { emailContentSecurityPolicy } from './emailSecurity';
 
 /* ---------------- Toasts ---------------- */
 interface Toast {
@@ -227,6 +228,9 @@ function escapeHtml(s: string): string {
 }
 
 export function EmailViewer({ message, onClose }: { message: ViewableMessage; onClose: () => void }) {
+  const messageKey = `${message.date}\n${message.from}\n${message.subject}`;
+  const [remoteContentFor, setRemoteContentFor] = useState<string | null>(null);
+  const allowRemoteContent = remoteContentFor === messageKey;
   // Close only via the button or Esc — never on an outside click, so clicking a
   // link / selecting text inside the email can't accidentally dismiss it.
   useEffect(() => {
@@ -237,7 +241,9 @@ export function EmailViewer({ message, onClose }: { message: ViewableMessage; on
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // Render the original email in a sandboxed iframe (no scripts). `<base
+  // Render the original email in a sandboxed iframe (no scripts). A restrictive
+  // CSP blocks tracking pixels and other remote resources until the user opts in.
+  // `<base
   // target="_blank">` makes links open as popups; the desktop shell's
   // window-open handler routes those to the system browser.
   const inner = message.html
@@ -246,7 +252,9 @@ export function EmailViewer({ message, onClose }: { message: ViewableMessage; on
         message.text || '(无正文)',
       )}</pre>`;
   const doc =
-    `<!doctype html><html><head><meta charset="utf-8"><base target="_blank">` +
+    `<!doctype html><html><head><meta charset="utf-8">` +
+    `<meta http-equiv="Content-Security-Policy" content="${emailContentSecurityPolicy(allowRemoteContent)}">` +
+    `<base target="_blank">` +
     `<style>html,body{margin:0}body{padding:16px;font:14px/1.7 -apple-system,'PingFang SC',sans-serif;` +
     `color:#111;background:#fff;word-break:break-word}img{max-width:100%;height:auto}a{color:#0a66ff}</style>` +
     `</head><body>${inner}</body></html>`;
@@ -265,9 +273,16 @@ export function EmailViewer({ message, onClose }: { message: ViewableMessage; on
               收件时间：{formatDate(message.date)}
             </div>
           </div>
-          <Button variant="gray" size="sm" onClick={onClose}>
-            关闭
-          </Button>
+          <div className="flex items-center gap-2">
+            {message.html && !allowRemoteContent && (
+              <Button variant="gray" size="sm" onClick={() => setRemoteContentFor(messageKey)}>
+                加载外部图片
+              </Button>
+            )}
+            <Button variant="gray" size="sm" onClick={onClose}>
+              关闭
+            </Button>
+          </div>
         </div>
         <iframe
           title="email"
