@@ -472,6 +472,16 @@ type SilentOutcome =
   | { outcome: 'no_password' }
   | { outcome: 'bad_password' };
 
+type SessionRecoveryOutcome =
+  | { outcome: 'cookie' }
+  | { outcome: 'password' }
+  | { outcome: 'awaiting_code'; phone: string }
+  | { outcome: 'no_password' }
+  | { outcome: 'bad_password' }
+  | { outcome: 'busy' };
+
+const sessionRecoveryFlights = new Map<string, Promise<SessionRecoveryOutcome>>();
+
 /**
  * Silent SRP relogin using the stored password + trust token — no browser,
  * no user interaction. Succeeds outright when Apple still trusts this client
@@ -513,6 +523,40 @@ async function silentPasswordRelogin(row: AccountRow): Promise<SilentOutcome> {
   return { outcome: 'awaiting_code', phone };
 }
 
+async function performSessionRecovery(accountId: string): Promise<SessionRecoveryOutcome> {
+  const row = getRow(accountId);
+  if (!row) throw Object.assign(new Error('Account not found'), { status: 404 });
+  if (isProfileBusy(accountId)) return { outcome: 'busy' };
+
+  const refreshed = await refreshSession(
+    accountId,
+    row.client_id,
+    row.webservice_url,
+    storedCookies(row),
+  );
+  if (refreshed) {
+    persistSession(accountId, refreshed);
+    return { outcome: 'cookie' };
+  }
+
+  const silent = await silentPasswordRelogin(row);
+  if (silent.outcome === 'active') return { outcome: 'password' };
+  return silent;
+}
+
+/** Share one cookie/SRP recovery attempt across every caller for an account. */
+function recoverSessionOnce(accountId: string): Promise<SessionRecoveryOutcome> {
+  const existing = sessionRecoveryFlights.get(accountId);
+  if (existing) return existing;
+  const flight = performSessionRecovery(accountId).finally(() => {
+    if (sessionRecoveryFlights.get(accountId) === flight) {
+      sessionRecoveryFlights.delete(accountId);
+    }
+  });
+  sessionRecoveryFlights.set(accountId, flight);
+  return flight;
+}
+
 /**
  * On-demand session recovery: first the cheap cookie-roll fast path
  * (relaunch the persistent profile headlessly, seeded with the last captured
@@ -525,29 +569,25 @@ export async function recoverSession(accountId: string): Promise<RecoverResult> 
   if (!row) throw Object.assign(new Error('Account not found'), { status: 404 });
   const publicNow = () => toPublic(getRow(accountId)!);
 
-  if (isProfileBusy(accountId)) {
+  const recovered = await recoverSessionOnce(accountId);
+  if (recovered.outcome === 'busy') {
     return { ok: false, outcome: 'busy', message: '该账户已有登录会话进行中，请稍后再试', account: publicNow() };
   }
-
-  const refreshed = await refreshSession(accountId, row.client_id, row.webservice_url, storedCookies(row));
-  if (refreshed) {
-    persistSession(accountId, refreshed);
+  if (recovered.outcome === 'cookie') {
     return { ok: true, outcome: 'cookie', message: '会话已恢复（Cookie 仍有效）', account: publicNow() };
   }
-
-  const s = await silentPasswordRelogin(row);
-  if (s.outcome === 'active') {
+  if (recovered.outcome === 'password') {
     return { ok: true, outcome: 'password', message: '会话已恢复（密码静默重登，无需操作）', account: publicNow() };
   }
-  if (s.outcome === 'awaiting_code') {
+  if (recovered.outcome === 'awaiting_code') {
     return {
       ok: false,
       outcome: 'awaiting_code',
-      message: `Apple 信任令牌已过期：已发送短信验证码到 ${s.phone}，请在下方输入`,
+      message: `Apple 信任令牌已过期：已发送短信验证码到 ${recovered.phone}，请在下方输入`,
       account: publicNow(),
     };
   }
-  if (s.outcome === 'bad_password') {
+  if (recovered.outcome === 'bad_password') {
     return {
       ok: false,
       outcome: 'expired',
@@ -622,17 +662,11 @@ export async function withHmeClient<T>(
     if (status !== 401 && status !== 421) throw err;
 
     logger.info(`account ${accountId} session expired; attempting silent refresh`);
-    const refreshed = await refreshSession(accountId, row.client_id, row.webservice_url, storedCookies(row));
-    if (refreshed) {
-      persistSession(accountId, refreshed);
+    const recovered = await recoverSessionOnce(accountId);
+    if (recovered.outcome === 'cookie' || recovered.outcome === 'password') {
       return fn(new HmeClient(loadSession(getRow(accountId)!)));
     }
-
-    const s = await silentPasswordRelogin(row);
-    if (s.outcome === 'active') {
-      return fn(new HmeClient(loadSession(getRow(accountId)!)));
-    }
-    if (s.outcome === 'no_password') {
+    if (recovered.outcome === 'no_password') {
       setStatus(accountId, 'session_expired', 'iCloud 会话已过期，请重新登录');
     }
     // bad_password / awaiting_code already set their own status inside silentPasswordRelogin.
@@ -651,17 +685,10 @@ export async function keepAlive(
 ): Promise<'refreshed' | 'busy' | 'awaiting_code' | 'expired' | 'not_found'> {
   const row = getRow(accountId);
   if (!row) return 'not_found';
-  if (isProfileBusy(accountId)) return 'busy';
-
-  const refreshed = await refreshSession(accountId, row.client_id, row.webservice_url, storedCookies(row));
-  if (refreshed) {
-    persistSession(accountId, refreshed);
-    return 'refreshed';
-  }
-
-  const s = await silentPasswordRelogin(row);
-  if (s.outcome === 'active') return 'refreshed';
-  if (s.outcome === 'awaiting_code') return 'awaiting_code';
+  const recovered = await recoverSessionOnce(accountId);
+  if (recovered.outcome === 'busy') return 'busy';
+  if (recovered.outcome === 'cookie' || recovered.outcome === 'password') return 'refreshed';
+  if (recovered.outcome === 'awaiting_code') return 'awaiting_code';
 
   setStatus(accountId, 'session_expired', 'iCloud 会话已过期，请重新登录');
   return 'expired';
