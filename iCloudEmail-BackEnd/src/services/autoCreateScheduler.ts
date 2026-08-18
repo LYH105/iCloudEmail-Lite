@@ -4,6 +4,7 @@ import { createBatch } from './aliasService.js';
 import { logAutoCreateAttempt } from './autoCreateLogService.js';
 
 let timer: NodeJS.Timeout | null = null;
+let startupTimer: NodeJS.Timeout | null = null;
 let running = false;
 
 /** Per-account cadence: top an account back up 65 minutes after its newest alias. */
@@ -135,14 +136,18 @@ async function tick(): Promise<void> {
  * effect without a restart.
  */
 export function startAutoCreateScheduler(): void {
+  stopAutoCreateScheduler();
   // First check shortly after boot, then on the 60s tick.
-  setTimeout(() => void tick(), 20_000).unref();
+  startupTimer = setTimeout(() => void tick(), 20_000);
+  startupTimer.unref();
   timer = setInterval(() => void tick(), 60_000);
   timer.unref();
   logger.info('[autocreate] scheduler ready (per-account, 65min cadence off each newest alias)');
 }
 
 export function stopAutoCreateScheduler(): void {
+  if (startupTimer) clearTimeout(startupTimer);
   if (timer) clearInterval(timer);
+  startupTimer = null;
   timer = null;
 }
