@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS accounts (
   login_password_enc TEXT,
   trust_token_enc    TEXT,
   china              INTEGER NOT NULL DEFAULT 1,
-  auto_create_enabled INTEGER NOT NULL DEFAULT 1,
+  auto_create_enabled INTEGER NOT NULL DEFAULT 0,
+  auto_create_failures INTEGER NOT NULL DEFAULT 0,
+  auto_create_next_attempt_at INTEGER,
   disabled           INTEGER NOT NULL DEFAULT 0,
   profile_dir        TEXT,
   last_error         TEXT,
@@ -153,8 +155,10 @@ export function getDb(): DB {
     db,
     'accounts',
     'auto_create_enabled',
-    'auto_create_enabled INTEGER NOT NULL DEFAULT 1',
+    'auto_create_enabled INTEGER NOT NULL DEFAULT 0',
   );
+  ensureColumn(db, 'accounts', 'auto_create_failures', 'auto_create_failures INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'accounts', 'auto_create_next_attempt_at', 'auto_create_next_attempt_at INTEGER');
   ensureColumn(db, 'accounts', 'disabled', 'disabled INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'aliases', 'mark', 'mark TEXT');
   ensureColumn(db, 'aliases', 'marked_at', 'marked_at INTEGER');
@@ -193,18 +197,6 @@ export function getDb(): DB {
       /* malformed legacy setting — nothing to carry over */
     }
     db.exec("DELETE FROM app_settings WHERE key = 'auto_create'");
-  }
-  // One-time migration: auto-create now defaults to on. Flip any account
-  // still sitting at the old off-by-default value, then mark this done so a
-  // later explicit opt-out (via the per-account switch) is never re-applied.
-  const defaultOnMigrated = db
-    .prepare("SELECT 1 FROM app_settings WHERE key = 'auto_create_default_on_migrated'")
-    .get();
-  if (!defaultOnMigrated) {
-    db.exec('UPDATE accounts SET auto_create_enabled = 1 WHERE auto_create_enabled = 0');
-    db.prepare(
-      "INSERT INTO app_settings (key, value, updated_at) VALUES ('auto_create_default_on_migrated', '1', ?)",
-    ).run(Date.now());
   }
   // One-time migration: the account "label" concept is retired (the UI shows
   // the account id instead everywhere it used to show a label). Clear out any

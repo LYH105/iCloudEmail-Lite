@@ -432,11 +432,12 @@ export function updateSettings(accountId: string, input: AccountSettingsInput): 
     );
   }
   if (input.autoCreateEnabled !== undefined) {
-    db.prepare('UPDATE accounts SET auto_create_enabled = ?, updated_at = ? WHERE id = ?').run(
-      input.autoCreateEnabled ? 1 : 0,
-      Date.now(),
-      accountId,
-    );
+    db.prepare(
+      `UPDATE accounts
+          SET auto_create_enabled = ?, auto_create_failures = 0,
+              auto_create_next_attempt_at = NULL, updated_at = ?
+        WHERE id = ?`,
+    ).run(input.autoCreateEnabled ? 1 : 0, Date.now(), accountId);
   }
   if (input.imapPassword) {
     setImapPassword(accountId, input.imapPassword, input.imapUsername);

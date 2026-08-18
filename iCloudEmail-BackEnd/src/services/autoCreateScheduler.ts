@@ -10,20 +10,18 @@ let running = false;
 export const AUTO_CREATE_INTERVAL_MS = 65 * 60_000;
 const AUTO_CREATE_COUNT = 5;
 const AUTO_CREATE_LABEL = 'AI注册';
-
-/**
- * Re-attempt guard: an account whose batch failed outright (rate-limited,
- * network…) leaves no fresh alias behind, so it would come up "due" again on
- * every 60s tick. Don't hit Apple more than once per cooldown for it.
- */
-const lastAttemptAt = new Map<string, number>();
-const ATTEMPT_COOLDOWN_MS = 10 * 60_000;
+export const AUTO_CREATE_DAILY_LIMIT = 25;
+const RETRY_BASE_MS = 10 * 60_000;
+const RETRY_MAX_MS = 6 * 60 * 60_000;
 
 interface DueAccount {
   id: string;
   label: string;
   /** Newest alias creation time for THIS account (0 = no dated aliases yet). */
   newest: number;
+  failures: number;
+  nextAttemptAt: number;
+  createdLast24h: number;
 }
 
 /** Active accounts with auto-create turned on, each with its newest alias time. */
@@ -31,17 +29,22 @@ function enabledAccounts(): DueAccount[] {
   return getDb()
     .prepare(
       `SELECT a.id, a.label,
-              COALESCE((SELECT MAX(create_timestamp) FROM aliases WHERE account_id = a.id), 0) AS newest
+              COALESCE((SELECT MAX(create_timestamp) FROM aliases WHERE account_id = a.id), 0) AS newest,
+              a.auto_create_failures AS failures,
+              COALESCE(a.auto_create_next_attempt_at, 0) AS nextAttemptAt,
+              COALESCE((SELECT SUM(created_count) FROM auto_create_logs
+                         WHERE account_id = a.id AND created_at >= ?), 0) AS createdLast24h
          FROM accounts a
         WHERE a.status = 'active' AND a.auto_create_enabled = 1 AND a.disabled = 0`,
     )
-    .all() as DueAccount[];
+    .all(Date.now() - 24 * 60 * 60_000) as DueAccount[];
 }
 
 async function runForAccount(acc: DueAccount): Promise<void> {
-  lastAttemptAt.set(acc.id, Date.now());
+  const db = getDb();
   try {
-    const r = await createBatch(acc.id, AUTO_CREATE_COUNT, AUTO_CREATE_LABEL);
+    const remaining = AUTO_CREATE_DAILY_LIMIT - acc.createdLast24h;
+    const r = await createBatch(acc.id, Math.min(AUTO_CREATE_COUNT, remaining), AUTO_CREATE_LABEL);
     logger.info(`[autocreate] ${acc.label}: +${r.created.length} 别名（${r.errors.length} 失败）`);
     logAutoCreateAttempt(
       acc.id,
@@ -50,11 +53,29 @@ async function runForAccount(acc: DueAccount): Promise<void> {
       r.errors.length,
       r.errors.length ? r.errors.map((e) => e.message).slice(0, 3).join('; ').slice(0, 300) : null,
     );
+    if (r.created.length > 0) {
+      db.prepare(
+        'UPDATE accounts SET auto_create_failures = 0, auto_create_next_attempt_at = ?, updated_at = ? WHERE id = ?',
+      ).run(Date.now() + AUTO_CREATE_INTERVAL_MS, Date.now(), acc.id);
+      return;
+    }
+    scheduleRetry(acc.id, acc.failures + 1);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.warn(`[autocreate] ${acc.label}: ${message}`);
     logAutoCreateAttempt(acc.id, false, 0, 0, message.slice(0, 300));
+    scheduleRetry(acc.id, acc.failures + 1);
   }
+}
+
+function scheduleRetry(accountId: string, failures: number): void {
+  const delay = Math.min(RETRY_BASE_MS * 2 ** Math.max(0, failures - 1), RETRY_MAX_MS);
+  const now = Date.now();
+  getDb()
+    .prepare(
+      'UPDATE accounts SET auto_create_failures = ?, auto_create_next_attempt_at = ?, updated_at = ? WHERE id = ?',
+    )
+    .run(failures, now + delay, now, accountId);
 }
 
 /**
@@ -65,13 +86,23 @@ async function runForAccount(acc: DueAccount): Promise<void> {
 export function nextRunAtForAccount(accountId: string): number | null {
   const row = getDb()
     .prepare(
-      `SELECT COALESCE((SELECT MAX(create_timestamp) FROM aliases WHERE account_id = a.id), 0) AS newest
+      `SELECT COALESCE((SELECT MAX(create_timestamp) FROM aliases WHERE account_id = a.id), 0) AS newest,
+              COALESCE(a.auto_create_next_attempt_at, 0) AS nextAttemptAt,
+              COALESCE((SELECT SUM(created_count) FROM auto_create_logs
+                         WHERE account_id = a.id AND created_at >= ?), 0) AS createdLast24h,
+              (SELECT MIN(created_at) FROM auto_create_logs
+                WHERE account_id = a.id AND created_count > 0 AND created_at >= ?) AS oldestRecentCreate
          FROM accounts a
         WHERE a.id = ? AND a.status = 'active' AND a.auto_create_enabled = 1 AND a.disabled = 0`,
     )
-    .get(accountId) as { newest: number } | undefined;
+    .get(Date.now() - 24 * 60 * 60_000, Date.now() - 24 * 60 * 60_000, accountId) as
+    | { newest: number; nextAttemptAt: number; createdLast24h: number; oldestRecentCreate: number | null }
+    | undefined;
   if (!row) return null;
-  return Math.max(row.newest + AUTO_CREATE_INTERVAL_MS, Date.now());
+  if (row.createdLast24h >= AUTO_CREATE_DAILY_LIMIT && row.oldestRecentCreate) {
+    return row.oldestRecentCreate + 24 * 60 * 60_000;
+  }
+  return Math.max(row.newest + AUTO_CREATE_INTERVAL_MS, row.nextAttemptAt, Date.now());
 }
 
 /**
@@ -87,7 +118,8 @@ async function tick(): Promise<void> {
     const now = Date.now();
     for (const acc of enabledAccounts()) {
       if (now - acc.newest < AUTO_CREATE_INTERVAL_MS) continue;
-      if (now - (lastAttemptAt.get(acc.id) ?? 0) < ATTEMPT_COOLDOWN_MS) continue;
+      if (acc.nextAttemptAt > now) continue;
+      if (acc.createdLast24h >= AUTO_CREATE_DAILY_LIMIT) continue;
       await runForAccount(acc);
     }
   } catch (err) {
