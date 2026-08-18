@@ -5,14 +5,16 @@ import { AccountsPage } from './pages/AccountsPage';
 import { EmailLibraryPage } from './pages/EmailLibraryPage';
 import { MailLibraryPage } from './pages/MailLibraryPage';
 import { ApiKeysPage } from './pages/ApiKeysPage';
+import { AboutPage } from './pages/AboutPage';
 
-type Tab = 'accounts' | 'aliases' | 'mail' | 'apikeys';
+type Tab = 'accounts' | 'aliases' | 'mail' | 'apikeys' | 'about';
 
 const ICONS: Record<Tab, string> = {
   accounts: '👤',
   aliases: '🗂',
   mail: '📬',
   apikeys: '🔑',
+  about: 'ℹ️',
 };
 
 // Tabs whose page manages its own height and scrolls internally (the list
@@ -55,6 +57,7 @@ export function App() {
     { value: 'aliases', label: '邮箱库' },
     { value: 'mail', label: '最近邮件' },
     ...(authDisabled ? [] : [{ value: 'apikeys' as Tab, label: 'API Key' }]),
+    { value: 'about', label: '关于' },
   ];
   const fullHeight = FULL_HEIGHT_TABS.includes(tab);
 
@@ -101,6 +104,7 @@ export function App() {
             </div>
           )}
           {tab === 'apikeys' && <ApiKeysPage />}
+          {tab === 'about' && <AboutPage />}
         </div>
       </main>
     </div>
