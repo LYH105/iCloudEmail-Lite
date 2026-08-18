@@ -24,5 +24,10 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-darwin-arm64": "4.62.2",
+    "@rollup/rollup-darwin-x64": "4.62.2",
+    "@rollup/rollup-win32-x64-msvc": "4.62.2"
   }
 }
