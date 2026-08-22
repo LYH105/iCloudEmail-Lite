@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { api } from '../api';
+import { aliasesToCsv } from '../aliasCsv';
 import type {
   AccountPublic,
   AliasPublic,
@@ -394,6 +395,18 @@ export function EmailLibraryPage() {
     setQuery('');
   };
 
+  const exportShown = () => {
+    if (shown.length === 0) return;
+    const blob = new Blob([aliasesToCsv(shown, accounts)], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `icloud-aliases-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.ok(`已导出当前筛选的 ${shown.length} 个邮箱`);
+  };
+
   return (
     <div className="flex flex-col gap-4 h-full min-h-0">
       <PageHeader
@@ -409,6 +422,9 @@ export function EmailLibraryPage() {
             </Button>
             <Button variant="gray" size="sm" onClick={openRules}>
               规则
+            </Button>
+            <Button variant="gray" size="sm" onClick={exportShown} disabled={shown.length === 0}>
+              导出 CSV
             </Button>
           </>
         }
