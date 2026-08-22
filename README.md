@@ -9,6 +9,7 @@
 [![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![local only](https://img.shields.io/badge/network-127.0.0.1%20only-blue)](#security-notes)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![release](https://img.shields.io/github/v/release/LYH105/iCloudEmail-Lite?label=Download&color=blue)](https://github.com/LYH105/iCloudEmail-Lite/releases/latest)
 [![stars](https://img.shields.io/github/stars/LYH105/iCloudEmail-Lite?style=flat&logo=github&label=Star&color=f5c518)](https://github.com/LYH105/iCloudEmail-Lite/stargazers)
 
 [中文](README.zh-CN.md) · English
@@ -63,12 +64,13 @@ A self-hosted manager for Apple's iCloud Web / Hide My Email (HME) API. It handl
 - **Desktop app (Electron)**: an iOS 18-style UI (Tailwind) served same-origin by the backend the app starts itself. **No API key needed locally** — double-click and go.
 - **Multiple accounts**: SRP login + SMS code. Apple's trust token is stored, so silent re-login without 2FA works for roughly 30 days. When a session expires the app tries, in order: silent cookie refresh → headless re-login with the stored password + trust token → only then does it ask you to verify again. A background session keeper keeps sessions warm.
 - **Hide My Email**: `generate` / `reserve` / `list` / `updateMetaData` / `deactivate` / `reactivate` / `delete` / `updateForwardTo`, mirrored into a local cache. **Batch-generate N aliases at once** (default 5); if the session expires mid-batch, cookies are refreshed and the batch continues.
-- **Alias library**: a cross-account alias pool with search, filtering by account/mark, a "used" toggle, and per-alias mail fetch. `aliasSyncScheduler` syncs it in the background.
+- **Alias library**: a cross-account alias pool with search, filtering by account/mark, a "used" toggle, per-alias mail fetch, and **CSV export of the current filtered result**. `aliasSyncScheduler` syncs it in the background.
 - **Recent mail**: one inbox across every alias (`GET /api/aliases/mail-library`, last 24h by default), each message tagged with the alias it arrived at, refreshed automatically and on demand.
 - **Mark rules**: rules on sender/subject that automatically tag aliases (registered / activated / …); `markScanner` scans inboxes on a timer and applies them. Rules can be exported, imported, renamed, and orphaned marks cleaned up.
 - **API keys**: stored as SHA-256, with read / write scopes. Creating the very first key is unauthenticated bootstrap.
 - **IMAP verification codes**: connects to any IMAP server (iCloud `imap.mail.me.com:993` by default), fetches recent mail and heuristically extracts verification codes / login links, optionally filtered by recipient alias.
 - **Encrypted secrets**: session cookies, Apple ID passwords and IMAP passwords are stored AES-256-GCM encrypted in SQLite.
+- **Update checks**: the About page compares the installed version with the latest GitHub Release and links directly to its download when an update is available.
 
 ## Platform support
 
@@ -144,7 +146,7 @@ Local macOS builds are unsigned unless an Apple Developer ID is configured.
 
 ```powershell
 npm run package:win   # portable folder: release\win-unpacked\
-npm run dist:win      # NSIS installer: release\iCloud Email Manager Setup 0.1.0.exe
+npm run dist:win      # NSIS installer: release\iCloud.Email.Manager-0.2.0-win-x64.exe
 ```
 
 ## Where data is stored

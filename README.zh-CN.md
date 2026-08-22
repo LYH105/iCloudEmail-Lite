@@ -9,6 +9,7 @@
 [![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![local only](https://img.shields.io/badge/network-127.0.0.1%20only-blue)](#安全说明)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![release](https://img.shields.io/github/v/release/LYH105/iCloudEmail-Lite?label=Download&color=blue)](https://github.com/LYH105/iCloudEmail-Lite/releases/latest)
 [![stars](https://img.shields.io/github/stars/LYH105/iCloudEmail-Lite?style=flat&logo=github&label=Star&color=f5c518)](https://github.com/LYH105/iCloudEmail-Lite/stargazers)
 
 中文 · [English](README.md)
@@ -63,12 +64,13 @@
 - **桌面应用（Electron）**：iOS 18 风格界面（Tailwind），内部启动后端并同源加载，**本地免 API Key**，双击即用。
 - **多账户**：SRP 登录 + 短信验证码，Apple 信任令牌保存后约 30 天内可免 2FA 静默重登；会话过期时依次尝试 Cookie 静默刷新 → 存储密码 + 信任令牌无头重登 → 才提示重新验证。后台 session keeper 定期保活。
 - **Hide My Email**：`generate` / `reserve` / `list` / `updateMetaData` / `deactivate` / `reactivate` / `delete` / `updateForwardTo`，本地镜像缓存；支持**一次批量生成 N 个**（默认 5），批量过程中会话过期会自动刷新 Cookie 后继续。
-- **邮箱库**：跨账户的别名池，带搜索、按账户/标记筛选、「已用」开关、单别名收件；`aliasSyncScheduler` 后台自动同步。
+- **邮箱库**：跨账户的别名池，带搜索、按账户/标记筛选、「已用」开关、单别名收件，以及将**当前筛选结果导出为 CSV**；`aliasSyncScheduler` 后台自动同步。
 - **最近邮件**：一个跨所有别名的总收件箱（`GET /api/aliases/mail-library`，默认最近 24h），每封标注所属别名，自动 + 手动刷新。
 - **标记规则**：按发件人/主题等规则自动给别名打标（已注册/已开通…），`markScanner` 定期扫描收件箱套用；规则支持导入导出、重命名、清理孤儿标记。
 - **API Key**：SHA-256 存储，read / write 作用域，首个 Key 免鉴权引导创建。
 - **IMAP 验证码**：连接任意 IMAP（默认 iCloud `imap.mail.me.com:993`），拉取近期邮件并启发式提取验证码/登录链接，可按收件别名过滤。
 - **敏感字段加密**：会话 Cookie、Apple ID 密码、IMAP 密码在 SQLite 中以 AES-256-GCM 加密存储。
+- **版本检查**：「关于」页会比较当前版本与 GitHub 最新 Release，发现新版本时直接提供下载入口。
 
 ## 平台支持
 
@@ -144,7 +146,7 @@ npm run dist:mac      # 产出 .dmg + .zip
 
 ```powershell
 npm run package:win   # 免安装绿色版目录：release\win-unpacked\
-npm run dist:win      # NSIS 安装包：release\iCloud Email Manager Setup 0.1.0.exe
+npm run dist:win      # NSIS 安装包：release\iCloud.Email.Manager-0.2.0-win-x64.exe
 ```
 
 ## 数据存放位置

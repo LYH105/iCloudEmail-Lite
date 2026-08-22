@@ -1,6 +1,6 @@
 {
   "name": "@icloud-hme/desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Local multi-account manager for iCloud Hide My Email",
   "author": "LYH105",
@@ -53,7 +53,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
@@ -64,7 +66,10 @@
     "mac": {
       "icon": "build-icon.icns",
       "category": "public.app-category.productivity",
-      "target": ["dmg", "zip"]
+      "target": [
+        "dmg",
+        "zip"
+      ]
     }
   }
 }
