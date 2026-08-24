@@ -1,6 +1,6 @@
 {
   "name": "icloud-hme-manager",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "iCloud Hide My Email multi-account management system (Electron desktop app for macOS & Windows)",
   "workspaces": [

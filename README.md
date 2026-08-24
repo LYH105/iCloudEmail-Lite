@@ -146,7 +146,7 @@ Local macOS builds are unsigned unless an Apple Developer ID is configured.
 
 ```powershell
 npm run package:win   # portable folder: release\win-unpacked\
-npm run dist:win      # NSIS installer: release\iCloud.Email.Manager-0.2.0-win-x64.exe
+npm run dist:win      # NSIS installer: release\iCloud.Email.Manager-0.2.1-win-x64.exe
 ```
 
 ## Where data is stored

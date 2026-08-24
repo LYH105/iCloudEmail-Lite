@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Update compatible runtime and build dependencies, including Fastify, IMAPFlow, Playwright, Tailwind CSS, and Rollup platform packages.
+- Update GitHub Actions artifact handling to the current Node.js 24-based releases.
+- Keep the production dependency audit at zero known vulnerabilities.
+
 ## 0.2.0
 
 - Export the currently filtered alias library to an Excel-friendly CSV file.

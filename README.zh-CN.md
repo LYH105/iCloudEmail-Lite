@@ -146,7 +146,7 @@ npm run dist:mac      # 产出 .dmg + .zip
 
 ```powershell
 npm run package:win   # 免安装绿色版目录：release\win-unpacked\
-npm run dist:win      # NSIS 安装包：release\iCloud.Email.Manager-0.2.0-win-x64.exe
+npm run dist:win      # NSIS 安装包：release\iCloud.Email.Manager-0.2.1-win-x64.exe
 ```
 
 ## 数据存放位置
