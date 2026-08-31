@@ -9,10 +9,12 @@ const loginSchema = z.object({
   appleId: z.string().min(1).max(200),
   password: z.string().min(1).max(200),
   china: z.boolean().default(true),
+  rememberPassword: z.boolean().default(true),
 });
 const retryLoginSchema = z.object({
   password: z.string().min(1).max(200).optional(),
   china: z.boolean().optional(),
+  rememberPassword: z.boolean().default(true),
 });
 const codeSchema = z.object({ code: z.string().min(1).max(20) });
 const imapSchema = z.object({
@@ -24,6 +26,7 @@ const settingsSchema = z.object({
   imapPassword: z.string().min(1).optional(),
   imapUsername: z.string().min(1).optional(),
   autoCreateEnabled: z.boolean().optional(),
+  clearLoginPassword: z.boolean().optional(),
 });
 const disabledSchema = z.object({ disabled: z.boolean() });
 const openPageSchema = z.object({
@@ -54,7 +57,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
 
   app.get<{ Params: { id: string } }>('/:id', read, async (req) => {
     const account = accounts.getAccount(req.params.id);
-    if (!account) throw notFound('Account not found');
+    if (!account) throw notFound('账户不存在');
     return { account };
   });
 
@@ -89,7 +92,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete<{ Params: { id: string } }>('/:id', write, async (req) => {
     const deleted = accounts.deleteAccount(req.params.id);
-    if (!deleted) throw notFound('Account not found');
+    if (!deleted) throw notFound('账户不存在');
     return { deleted: true };
   });
 
@@ -130,7 +133,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  app.post<{ Params: { id: string } }>('/:id/imap/test', read, async (req) =>
+  app.post<{ Params: { id: string } }>('/:id/imap/test', write, async (req) =>
     accounts.testImap(req.params.id),
   );
 }

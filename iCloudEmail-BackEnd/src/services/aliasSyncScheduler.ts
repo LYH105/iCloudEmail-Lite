@@ -11,7 +11,9 @@ async function syncAll(): Promise<void> {
   running = true;
   try {
     const r = await syncAllAccounts();
-    logger.info(`[aliassync] synced ${r.synced} 个账户${r.errors.length ? ` · ${r.errors.length} 个失败` : ''}`);
+    logger.info(
+      `[aliassync] synced ${r.synced} 个账户${r.errors.length ? ` · ${r.errors.length} 个失败` : ''}`,
+    );
   } catch (err) {
     logger.warn(`[aliassync] pass failed: ${err instanceof Error ? err.message : String(err)}`);
   } finally {

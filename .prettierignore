@@ -1,0 +1,10 @@
+node_modules/
+**/dist/
+**/build/
+release/
+iCloudEmail-Desktop/.runtime/
+iCloudEmail-BackEnd/data/
+package-lock.json
+docs/
+README*.md
+CHANGELOG.md

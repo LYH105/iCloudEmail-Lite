@@ -4,14 +4,8 @@ import { logger } from './logger.js';
 import { buildServer } from './api/server.js';
 import { startSessionKeeper, stopSessionKeeper } from './services/sessionKeeper.js';
 import { startMarkScanner, stopMarkScanner } from './services/markScanner.js';
-import {
-  startAutoCreateScheduler,
-  stopAutoCreateScheduler,
-} from './services/autoCreateScheduler.js';
-import {
-  startAliasSyncScheduler,
-  stopAliasSyncScheduler,
-} from './services/aliasSyncScheduler.js';
+import { startAutoCreateScheduler, stopAutoCreateScheduler } from './services/autoCreateScheduler.js';
+import { startAliasSyncScheduler, stopAliasSyncScheduler } from './services/aliasSyncScheduler.js';
 
 async function main(): Promise<void> {
   // Initialize (and migrate) the database before accepting traffic.

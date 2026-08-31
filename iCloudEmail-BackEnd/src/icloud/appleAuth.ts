@@ -14,6 +14,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
+import { fetchWithTimeout } from './http.js';
 import { AppleSRP, derivePassword, pad, toBytes } from './srp.js';
 
 const WIDGET_KEY = 'd39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d';
@@ -245,8 +246,7 @@ export interface PendingLogin {
 }
 
 export type BeginResult =
-  | { status: 'active'; session: AuthedSession }
-  | { status: 'need_code'; pending: PendingLogin };
+  { status: 'active'; session: AuthedSession } | { status: 'need_code'; pending: PendingLogin };
 
 interface BeginOptions {
   appleId: string;
@@ -274,7 +274,7 @@ export async function beginLogin(opts: BeginOptions): Promise<BeginResult> {
     body?: string,
   ): Promise<Response> => {
     const cookie = jar.headerFor(url);
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method,
       headers: cookie ? { ...headers, Cookie: cookie } : headers,
       body,
@@ -334,14 +334,7 @@ export async function beginLogin(opts: BeginOptions): Promise<BeginResult> {
   if (completeRes.status === 200 || completeRes.status === 204) {
     const sessionToken = completeRes.headers.get('X-Apple-Session-Token');
     if (!sessionToken) throw new AuthError('登录未返回会话令牌');
-    const session = await accountLogin(
-      jar,
-      ctx,
-      conf,
-      opts.clientId,
-      sessionToken,
-      opts.trustToken ?? '',
-    );
+    const session = await accountLogin(jar, ctx, conf, opts.clientId, sessionToken, opts.trustToken ?? '');
     return { status: 'active', session };
   }
 
@@ -390,7 +383,7 @@ function pendingRequest(pending: PendingLogin) {
     body?: string,
   ): Promise<Response> => {
     const cookie = pending.jar.headerFor(url);
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method,
       headers: cookie ? { ...headers, Cookie: cookie } : headers,
       body,
@@ -414,8 +407,7 @@ export async function sendSms(pending: PendingLogin, phoneId?: number): Promise<
   if (![200, 201, 202].includes(res.status)) {
     throw new AuthError(`发送短信验证码失败（HTTP ${res.status}）`);
   }
-  const phone =
-    pending.phones.find((p) => p.id === pending.phoneId)?.display ?? `id=${pending.phoneId}`;
+  const phone = pending.phones.find((p) => p.id === pending.phoneId)?.display ?? `id=${pending.phoneId}`;
   return { phone };
 }
 
@@ -449,11 +441,9 @@ export async function submitSmsCode(
   const trustRes = await request(`${AUTH_BASE}/2sv/trust`, 'GET', pending.ctx.headers());
   pending.ctx.sync(trustRes);
   const sessionToken =
-    trustRes.headers.get('X-Apple-Session-Token') ??
-    verifyRes.headers.get('X-Apple-Session-Token');
+    trustRes.headers.get('X-Apple-Session-Token') ?? verifyRes.headers.get('X-Apple-Session-Token');
   const newToken =
-    trustRes.headers.get('X-Apple-TwoSV-Trust-Token') ??
-    trustRes.headers.get('X-Apple-Trust-Token');
+    trustRes.headers.get('X-Apple-TwoSV-Trust-Token') ?? trustRes.headers.get('X-Apple-Trust-Token');
   if (!sessionToken) throw new AuthError('二次验证后未返回会话令牌');
 
   const session = await accountLogin(
@@ -482,7 +472,7 @@ async function accountLogin(
   url.searchParams.set('clientId', clientId);
 
   const cookie = jar.headerFor(url.toString());
-  const res = await fetch(url.toString(), {
+  const res = await fetchWithTimeout(url.toString(), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

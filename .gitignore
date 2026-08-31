@@ -7,10 +7,18 @@ iCloudEmail-Desktop/.runtime/
 *.tsbuildinfo
 __pycache__/
 *.py[cod]
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+.cache/
+.eslintcache
 
 # Local env & secrets
 .env
 .env.local
+.env.*
+!.env.example
 iCloudEmail-BackEnd/.env
 accounts-export.json
 

@@ -142,10 +142,33 @@ export interface AutoCreateLogPublic {
   createdAt: number;
 }
 
+export interface OverviewPublic {
+  accounts: {
+    total: number;
+    active: number;
+    needsAttention: number;
+    withImap: number;
+    paused: number;
+  };
+  aliases: {
+    total: number;
+    active: number;
+    used: number;
+    marked: number;
+  };
+  setup: {
+    hasAccount: boolean;
+    hasActiveAccount: boolean;
+    hasMailbox: boolean;
+  };
+  jobs: {
+    sessionRefreshMinutes: number;
+    markScanMinutes: number;
+  };
+}
+
 export type LoginOutcome =
-  | { accountId: string; status: 'active' }
-  | { accountId: string; status: 'awaiting_code'; phone: string };
+  { accountId: string; status: 'active' } | { accountId: string; status: 'awaiting_code'; phone: string };
 
 export type CodeOutcome =
-  | { accountId: string; status: 'active' }
-  | { accountId: string; status: 'awaiting_code'; message: string };
+  { accountId: string; status: 'active' } | { accountId: string; status: 'awaiting_code'; message: string };

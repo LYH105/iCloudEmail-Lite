@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS aliases (
   marked_at         INTEGER,
   mark_source       TEXT,
   used              INTEGER NOT NULL DEFAULT 0,
-  used_at           INTEGER
+  used_at           INTEGER,
+  remote_present    INTEGER NOT NULL DEFAULT 1
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_aliases_account_anon ON aliases (account_id, anonymous_id);
 CREATE INDEX IF NOT EXISTS idx_aliases_hme ON aliases (hme);
@@ -157,24 +158,9 @@ export function getDb(): DB {
       ensureColumn(db, 'accounts', 'session_cookies_enc', 'session_cookies_enc TEXT');
       ensureColumn(db, 'accounts', 'trust_token_enc', 'trust_token_enc TEXT');
       ensureColumn(db, 'accounts', 'china', 'china INTEGER NOT NULL DEFAULT 1');
-      ensureColumn(
-        db,
-        'accounts',
-        'auto_create_enabled',
-        'auto_create_enabled INTEGER NOT NULL DEFAULT 0',
-      );
-      ensureColumn(
-        db,
-        'accounts',
-        'auto_create_failures',
-        'auto_create_failures INTEGER NOT NULL DEFAULT 0',
-      );
-      ensureColumn(
-        db,
-        'accounts',
-        'auto_create_next_attempt_at',
-        'auto_create_next_attempt_at INTEGER',
-      );
+      ensureColumn(db, 'accounts', 'auto_create_enabled', 'auto_create_enabled INTEGER NOT NULL DEFAULT 0');
+      ensureColumn(db, 'accounts', 'auto_create_failures', 'auto_create_failures INTEGER NOT NULL DEFAULT 0');
+      ensureColumn(db, 'accounts', 'auto_create_next_attempt_at', 'auto_create_next_attempt_at INTEGER');
       ensureColumn(db, 'accounts', 'disabled', 'disabled INTEGER NOT NULL DEFAULT 0');
       ensureColumn(db, 'aliases', 'mark', 'mark TEXT');
       ensureColumn(db, 'aliases', 'marked_at', 'marked_at INTEGER');
@@ -243,6 +229,47 @@ export function getDb(): DB {
       db.pragma('user_version = 2');
     });
     migrateV2();
+    version = 2;
+  }
+
+  if (version < 3) {
+    const migrateV3 = db.transaction(() => {
+      // Older releases made auto-create opt-out (`DEFAULT 1`) and even flipped
+      // existing accounts on. The safer product contract is explicit opt-in:
+      // disable legacy values once and reset their retry state. New account
+      // inserts also write 0 explicitly, so an old physical column default can
+      // never silently re-enable the feature after this upgrade.
+      db.exec(`
+        UPDATE accounts
+           SET auto_create_enabled = 0,
+               auto_create_failures = 0,
+               auto_create_next_attempt_at = NULL
+         WHERE auto_create_enabled != 0;
+      `);
+      db.pragma('user_version = 3');
+    });
+    migrateV3();
+    version = 3;
+  }
+
+  if (version < 4) {
+    const migrateV4 = db.transaction(() => {
+      // A remote list response is a snapshot, but it must not be allowed to
+      // erase local-only metadata (used state and mark hits). Missing aliases
+      // are hidden and can be restored with the same row id if Apple returns
+      // them again on a later sync.
+      // Recreate any missing base table first as a recovery path for partial
+      // legacy databases, then alter an existing aliases table as needed.
+      db.exec(SCHEMA);
+      ensureColumn(db, 'aliases', 'remote_present', 'remote_present INTEGER NOT NULL DEFAULT 1');
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_aliases_account_present_created
+          ON aliases (account_id, remote_present, create_timestamp DESC);
+      `);
+      db.pragma('user_version = 4');
+    });
+    migrateV4();
+    version = 4;
   }
   instance = db;
   return db;

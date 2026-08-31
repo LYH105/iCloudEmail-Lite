@@ -87,7 +87,11 @@ res = await app.inject({
 check('read-only key blocked from write → 403', res.statusCode === 403);
 
 // Read with read-only key works
-res = await app.inject({ method: 'GET', url: '/api/accounts', headers: { authorization: `Bearer ${readKey}` } });
+res = await app.inject({
+  method: 'GET',
+  url: '/api/accounts',
+  headers: { authorization: `Bearer ${readKey}` },
+});
 check('read-only key can read → 200', res.statusCode === 200);
 
 // IMAP config create + list (exercises field encryption of password)
@@ -100,7 +104,10 @@ res = await app.inject({
 check('create imap config → 200', res.statusCode === 200);
 res = await app.inject({ method: 'GET', url: '/api/imap', headers: authH });
 const cfg = res.json().configs[0];
-check('imap config listed without exposing password', cfg && !('password' in cfg) && cfg.username === 'a@b.com');
+check(
+  'imap config listed without exposing password',
+  cfg && !('password' in cfg) && cfg.username === 'a@b.com',
+);
 
 // Batch route: validation (count out of range) → 400
 res = await app.inject({
@@ -129,7 +136,11 @@ res = await app.inject({
 check('empty application/json body tolerated (not 400)', res.statusCode !== 400);
 
 // Invalid API key rejected
-res = await app.inject({ method: 'GET', url: '/api/accounts', headers: { authorization: 'Bearer ihme_bogus' } });
+res = await app.inject({
+  method: 'GET',
+  url: '/api/accounts',
+  headers: { authorization: 'Bearer ihme_bogus' },
+});
 check('bogus key → 401', res.statusCode === 401);
 
 await app.close();

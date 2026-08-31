@@ -2,354 +2,246 @@
 
 # iCloud Hide My Email Manager
 
-**A cross-platform (macOS / Windows) local desktop app** — multiple Apple IDs, bulk Hide My Email alias management, a cross-alias inbox and verification-code extraction. All data stays on your own machine.
+**A local-first desktop manager for multiple Apple IDs, Hide My Email aliases, and verification mail.**
 
 [![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)](#platform-support)
-[![Node](https://img.shields.io/badge/Node.js-%E2%89%A5%2020-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
-[![local only](https://img.shields.io/badge/network-127.0.0.1%20only-blue)](#security-notes)
+[![Node](https://img.shields.io/badge/Node.js-%E2%89%A5%2022.12-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Electron](https://img.shields.io/badge/Electron-44-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![CI](https://github.com/LYH105/iCloudEmail-Lite/actions/workflows/ci.yml/badge.svg)](https://github.com/LYH105/iCloudEmail-Lite/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/LYH105/iCloudEmail-Lite?label=Download&color=5b5bd6)](https://github.com/LYH105/iCloudEmail-Lite/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![release](https://img.shields.io/github/v/release/LYH105/iCloudEmail-Lite?label=Download&color=blue)](https://github.com/LYH105/iCloudEmail-Lite/releases/latest)
-[![stars](https://img.shields.io/github/stars/LYH105/iCloudEmail-Lite?style=flat&logo=github&label=Star&color=f5c518)](https://github.com/LYH105/iCloudEmail-Lite/stargazers)
 
-[中文](README.zh-CN.md) · English
-
-**If you find this useful, a ⭐ Star goes a long way** — and makes it easy to find again from "Your stars".
+[中文说明](README.zh-CN.md) · English
 
 </div>
 
----
+The app runs on your computer, listens only on loopback, and stores its database, browser profiles, and encryption key locally. It combines account health, alias management, automatic marks, and a cross-alias inbox in one interface.
 
-A self-hosted manager for Apple's iCloud Web / Hide My Email (HME) API. It handles multi-account login sessions, alias **generate / reserve / deactivate / reactivate / delete / relabel**, API-key authentication, and pulls verification codes over IMAP. Every request and response field is **matched strictly** against Apple's official web client.
+> This project uses Apple's private web APIs and is not affiliated with or endorsed by Apple. Screenshot accounts and addresses are isolated demo data.
 
-> **This project is built for local desktop use**: the Electron shell starts the backend internally and binds to `127.0.0.1` only. There is nothing to deploy to a server and nothing exposed to the internet.
+![Overview](docs/screenshot-overview.png)
 
-> Account addresses in the screenshots are demo placeholders.
+<details>
+<summary>More real screenshots from the v0.3 production build</summary>
 
 ![Accounts](docs/screenshot-accounts.png)
 
-<details>
-<summary>More screenshots (alias library / recent mail)</summary>
-
-**Alias library** — the cross-account alias pool, with search, filtering by account/mark, a "used" toggle and per-alias mail fetch:
-
 ![Alias library](docs/screenshot-library.png)
-
-**Recent mail** — one inbox across every alias, each message tagged with its receiving alias and owning account; codes and login links are copyable:
 
 ![Recent mail](docs/screenshot-mail.png)
 
+![Responsive overview](docs/screenshot-mobile.png)
+
 </details>
 
-## Contents
+## Core features
 
-- [Features](#features)
-- [Platform support](#platform-support)
-- [Getting started](#getting-started)
-- [Building installers](#building-installers)
-- [Where data is stored](#where-data-is-stored)
-- [Authentication: direct SRP-6a login](#authentication-direct-srp-6a-login)
-- [Repository layout](#repository-layout)
-- [Field alignment with Apple's API](#field-alignment-with-apples-api)
-- [This project's REST API](#this-projects-rest-api)
-- [Login flow](#login-flow)
-- [IMAP verification codes](#imap-verification-codes)
-- [Security notes](#security-notes)
-- [Developer self-checks](#developer-self-checks)
-- [Support the project](#support-the-project)
-- [Disclaimer](#disclaimer)
+- **Guided setup and health overview** — see account, mailbox, and alias readiness without visiting every page.
+- **Multiple Apple IDs** — direct SRP-6a login with an explicit SMS step; background recovery never sends an SMS by itself.
+- **Hide My Email lifecycle** — create 1–25 aliases, choose the label, sync, deactivate, reactivate, delete, and update forwarding metadata.
+- **Cross-account alias library** — search by address, account, label, note, or mark; filter by account/stage; track “used”; export the visible result as spreadsheet-safe CSV.
+- **Unified recent mail** — read mail sent to any managed alias, extract likely verification codes and sign-in links, and optionally refresh while the page is visible.
+- **Automatic marks** — rules can match sender, subject, or body, and can be imported, exported, renamed, or cleaned up.
+- **Local security** — AES-256-GCM encrypted secrets, API-key scopes in browser/server mode, per-launch desktop session authentication, CSP, sandboxed email rendering, and blocked remote images by default.
+- **Recoverable local mirror** — an incomplete Apple snapshot can hide an alias, but cannot destroy its local marks or “used” state.
 
-## Features
+## Project highlights
 
-- **Desktop app (Electron)**: an iOS 18-style UI (Tailwind) served same-origin by the backend the app starts itself. **No API key needed locally** — double-click and go.
-- **Multiple accounts**: SRP login + SMS code. Apple's trust token is stored, so silent re-login without 2FA works for roughly 30 days. When a session expires the app tries, in order: silent cookie refresh → headless re-login with the stored password + trust token → only then does it ask you to verify again. A background session keeper keeps sessions warm.
-- **Hide My Email**: `generate` / `reserve` / `list` / `updateMetaData` / `deactivate` / `reactivate` / `delete` / `updateForwardTo`, mirrored into a local cache. **Batch-generate N aliases at once** (default 5); if the session expires mid-batch, cookies are refreshed and the batch continues.
-- **Alias library**: a cross-account alias pool with search, filtering by account/mark, a "used" toggle, per-alias mail fetch, and **CSV export of the current filtered result**. `aliasSyncScheduler` syncs it in the background.
-- **Recent mail**: one inbox across every alias (`GET /api/aliases/mail-library`, last 24h by default), each message tagged with the alias it arrived at, refreshed automatically and on demand.
-- **Mark rules**: rules on sender/subject that automatically tag aliases (registered / activated / …); `markScanner` scans inboxes on a timer and applies them. Rules can be exported, imported, renamed, and orphaned marks cleaned up.
-- **API keys**: stored as SHA-256, with read / write scopes. Creating the very first key is unauthenticated bootstrap.
-- **IMAP verification codes**: connects to any IMAP server (iCloud `imap.mail.me.com:993` by default), fetches recent mail and heuristically extracts verification codes / login links, optionally filtered by recipient alias.
-- **Encrypted secrets**: session cookies, Apple ID passwords and IMAP passwords are stored AES-256-GCM encrypted in SQLite.
-- **Update checks**: the About page compares the installed version with the latest GitHub Release and links directly to its download when an update is available.
+- Desktop mode is close to zero-configuration: it chooses a free loopback port, creates the encryption key, starts the backend, and opens the UI.
+- A stale browser API key returns the user to the connection screen instead of leaving the app stuck on repeated 401 responses.
+- Mail cache is isolated per backend/API key, bounded to 7 days and eight windows, and cleared on sign-out or authentication failure.
+- Every Apple HTTP exchange, Playwright validation, IMAP connection, message, and aggregate mail pull has a bounded lifetime or memory budget.
+- CI tests Node.js 22/24 across macOS Apple Silicon, macOS Intel, and Windows x64. The lockfile includes native packages for all release targets.
 
 ## Platform support
 
-One codebase runs on both macOS and Windows. The differences are exactly these:
+| | macOS | Windows |
+| --- | --- | --- |
+| Supported target | macOS 11+, Apple Silicon or Intel | Windows 10 1809+, x64 |
+| Source launcher | `启动iCloud邮箱.command` | `启动iCloud邮箱.bat` |
+| Browser helper | Google Chrome | Microsoft Edge |
+| Release output | `.dmg` and `.zip` | NSIS `.exe` |
 
-|                        | macOS                                               | Windows                                    |
-| ---------------------- | --------------------------------------------------- | ------------------------------------------ |
-| Requirements           | macOS 11 Big Sur or later (Apple Silicon / Intel)   | Windows 10 (1809) or later, x64            |
-| Double-click launcher  | `启动iCloud邮箱.command`                            | `启动iCloud邮箱.bat`                       |
-| Data directory         | `~/Library/Application Support/@icloud-hme/desktop` | `%APPDATA%\@icloud-hme\desktop`            |
-| Playwright browser     | Google Chrome (`chrome`)                            | Microsoft Edge (`msedge`)                  |
-| Packaging              | `npm run dist:mac` → `.dmg` / `.zip`                | `npm run dist:win` → NSIS `.exe` installer |
-| Menu bar               | Native menu (⌘C / ⌘V / ⌘Q work)                     | No menu bar; shortcuts live in the window  |
+Installers must be built on their target operating system because the packaged Node runtime and SQLite binding are platform-specific.
 
-> **Packages must be built on the OS they target.** The app ships a copy of the Node runtime, and `better-sqlite3` is a native module — both are tied to the OS *and* CPU architecture. You cannot build a Windows package on macOS or vice versa, and an Apple Silicon Mac cannot build an Intel package.
+## Installation
 
-## Getting started
+### Download a release
 
-### 1. Prerequisites
+For normal use, download the package for your system from [GitHub Releases](https://github.com/LYH105/iCloudEmail-Lite/releases/latest). Releases are built for macOS Apple Silicon, macOS Intel, and Windows x64.
 
-- **Node.js ≥ 20** ([download](https://nodejs.org/)).
-- A Chromium-based browser: **Google Chrome** on macOS or **Microsoft Edge** on Windows. It is used for cookie refresh and opening authenticated Apple pages; account login itself uses SRP and does not open a browser.
+### Run from source
 
-### 2. Install dependencies
+Requirements:
+
+- Node.js **22.12 or newer** (Node.js 24 is supported)
+- npm 10 or newer
+- Google Chrome on macOS or Microsoft Edge on Windows for browser-assisted session refresh and “Open Apple page”
 
 ```bash
+git clone https://github.com/LYH105/iCloudEmail-Lite.git
+cd iCloudEmail-Lite
 npm install
+npm run doctor
+npm run desktop
 ```
 
-### 3. Option A — desktop app (recommended)
+The launchers in the project root perform the same dependency check and desktop start. Mainland China users can use an Electron mirror during installation:
 
 ```bash
-npm run desktop      # builds server + web, then opens the Electron window
+ELECTRON_MIRROR=https://registry.npmmirror.com/-/binary/electron/ npm install
 ```
 
-You can also double-click the launcher in your file manager: `启动iCloud邮箱.command` on macOS or `启动iCloud邮箱.bat` on Windows.
+## Quick start
 
-The desktop app spawns the backend as a system Node child process (fixed at `127.0.0.1:8787`) and loads the UI same-origin into the window. The database, browser profiles and the encryption master key live in the OS userData directory (see [Where data is stored](#where-data-is-stored)); the master key is generated and persisted on first run. Desktop mode is single-user and local, so **no API key is required**.
+1. Open the desktop app and choose **Add account**.
+2. Enter the Apple ID, password, region, and whether the password may remain encrypted on this device.
+3. Enter the SMS code Apple sends. Background jobs will never start this SMS step for you.
+4. In the account editor, add an Apple **app-specific password** for IMAP. This is different from the Apple ID password.
+5. Open **Alias library** to sync existing aliases, or create a labelled batch from the account page.
+6. Open **Recent mail** to find messages, codes, and sign-in links across all aliases.
 
-### 4. Option B — browser dev mode
+Apple app-specific passwords are created at [account.apple.com](https://account.apple.com/) under **Sign-In and Security → App-Specific Passwords**.
+
+## Configuration
+
+Desktop mode configures safe defaults automatically. For browser/server development, copy [`.env.example`](.env.example) to `.env`.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `HOST` | `127.0.0.1` | Listening host. Keyless mode is rejected on non-loopback hosts. |
+| `PORT` | `8787` | Browser/server port; the desktop shell uses a free dynamic port. |
+| `SECRET_MASTER_KEY` | development fallback | Required in production; encrypts sensitive SQLite fields. |
+| `DATABASE_PATH` | `./data/icloud-hme.sqlite` | SQLite database location. |
+| `PROFILES_DIR` | `./data/profiles` | Per-account browser profile directory. |
+| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated browser origins allowed by the API. |
+| `DISABLE_AUTH` | `false` | Local development only. Electron additionally requires a per-launch HttpOnly session cookie. |
+| `SESSION_REFRESH_MINUTES` | `180` | Cookie/session refresh interval; `0` disables it. |
+| `MARK_SCAN_MINUTES` | `30` | Automatic mark scan interval; `0` disables it. |
+| `PLAYWRIGHT_CHANNEL` | platform default | `chrome`, `msedge`, or installed `chromium`. |
+| `WEB_DIST` | unset | Built frontend directory when the backend serves the production UI. |
+
+Never expose keyless mode to a LAN or the internet. The application rejects `DISABLE_AUTH=true` unless `HOST` is loopback.
+
+## Usage examples
+
+### Browser development mode
 
 ```bash
-npm run dev          # starts backend and frontend together (macOS and Windows alike)
+npm run dev
 ```
 
-Or start them separately:
+Open `http://localhost:5173`. The first visit creates a scoped API key; copy it immediately because its plaintext value is shown only once.
+
+### Production web build
 
 ```bash
-npm run dev:server   # backend at http://127.0.0.1:8787
-npm run dev:web      # frontend at http://localhost:5173 (proxied to the backend)
+npm run build
+SECRET_MASTER_KEY="$(node -e "process.stdout.write(require('crypto').randomBytes(32).toString('base64'))")" \
+WEB_DIST=../iCloudEmail-FrontEnd/dist NODE_ENV=production npm start
 ```
 
-In browser mode the first visit prompts you to **create the first API key** (that one call is unauthenticated). Every endpoint afterwards needs the key, and the key is shown in plaintext only once, at creation.
-
-Production build: `npm run build` (emits `iCloudEmail-BackEnd/dist` and `iCloudEmail-FrontEnd/dist`). Set `WEB_DIST=../iCloudEmail-FrontEnd/dist` and `npm start` serves both the API and the UI on a single port.
-
-Configuration lives in [`.env.example`](.env.example) (port, master key, session-keeper interval, Playwright channel, …) — copy it to `.env` and edit.
-
-## Building installers
-
-All artifacts land in `release/` at the repository root.
-
-**macOS** (run on a Mac):
+### Create the first browser-mode API key
 
 ```bash
-npm run package:mac   # unpacked, runnable app: release/mac-arm64/iCloud Email Manager.app
-npm run dist:mac      # .dmg + .zip
+curl -X POST http://127.0.0.1:8787/api/apikeys \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"local browser","scopes":["read","write"]}'
 ```
 
-Local macOS builds are unsigned unless an Apple Developer ID is configured.
+After bootstrap, send `Authorization: Bearer <key>` on API requests. The last active write-capable key cannot be revoked or deleted.
 
-**Windows** (run on Windows):
+## Data and backups
 
-```powershell
-npm run package:win   # portable folder: release\win-unpacked\
-npm run dist:win      # NSIS installer: release\iCloud.Email.Manager-0.2.1-win-x64.exe
-```
+| Data | macOS | Windows |
+| --- | --- | --- |
+| App data | `~/Library/Application Support/@icloud-hme/desktop/` | `%APPDATA%\@icloud-hme\desktop\` |
+| Database | `…/data/icloud-hme.sqlite` | `…\data\icloud-hme.sqlite` |
+| Browser profiles | `…/data/profiles/` | `…\data\profiles\` |
+| Encryption key | `…/master.key` | `…\master.key` |
+| Backend logs | `…/logs/` | `…\logs\` |
 
-## Where data is stored
+Back up the whole app-data directory, not only SQLite. If an existing database is present but `master.key` is missing or invalid, the desktop app refuses to start instead of silently creating an incompatible key.
 
-| What                        | macOS                                                                      | Windows                                                |
-| --------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------ |
-| SQLite database             | `~/Library/Application Support/@icloud-hme/desktop/data/icloud-hme.sqlite` | `%APPDATA%\@icloud-hme\desktop\data\icloud-hme.sqlite` |
-| Browser profiles (per account) | `…/@icloud-hme/desktop/data/profiles/`                                  | `…\@icloud-hme\desktop\data\profiles\`                 |
-| Encryption master key       | `…/@icloud-hme/desktop/master.key`                                         | `…\@icloud-hme\desktop\master.key`                     |
+## Project structure
 
-- Development runs and installed builds **share the same data**. Uninstalling (NSIS uninstaller, or dragging the .app to the Trash) never removes this directory — delete it by hand when you want a clean slate.
-- Browser dev mode (`npm run dev`) does not use userData; its data goes to `iCloudEmail-BackEnd/data/`.
-- Backing up means backing up that directory. **Losing `master.key` invalidates every encrypted field** — you would have to log in again and re-enter IMAP passwords.
-
-## Authentication: direct SRP-6a login
-
-The backend implements Apple's **SRP-6a login** ([`iCloudEmail-BackEnd/src/icloud/srp.ts`](iCloudEmail-BackEnd/src/icloud/srp.ts)): enter the Apple ID and password → the server completes the SRP handshake → Apple sends an SMS code → entering the code finishes the login, **with no browser window at any point**. After login it extracts the session cookies and discovers the `premiummailsettings` service URL and `dsid`; every HME operation afterwards talks to the iCloud API directly with those cookies (aligned with [maxktz/icloud-hidemyemail-generator](https://github.com/maxktz/icloud-hidemyemail-generator)).
-
-Playwright appears in exactly two places: the **cookie-refresh fast path** when a session goes stale, and "open page" (opening a signed-in Apple page, e.g. to create an app-specific password).
-
-## Repository layout
-
-```
+```text
 iCloudEmail-Lite/
-├─ iCloudEmail-Desktop/    Electron shell — the app itself, packaged into .app / .exe
-│  ├─ main.cjs             window, backend child process, loadURL to the local backend (incl. mac/win differences)
-│  ├─ build-icon.icns      macOS app icon
-│  ├─ build-icon.ico       Windows app icon
-│  └─ scripts/             prepare-runtime.cjs: collects backend/frontend/node output into .runtime before packaging
-├─ iCloudEmail-BackEnd/    Backend (Node.js + TypeScript + Fastify + better-sqlite3)
-│  ├─ src/
-│  │  ├─ config.ts         environment configuration
-│  │  ├─ crypto/secrets.ts AES-256-GCM field encryption + API-key hashing
-│  │  ├─ db/index.ts       SQLite connection + schema + incremental migrations
-│  │  ├─ icloud/
-│  │  │  ├─ types.ts       types matched strictly against Apple's API
-│  │  │  ├─ srp.ts         SRP-6a login handshake (no browser)
-│  │  │  ├─ browser.ts     Playwright: cookie-refresh fast path / open a signed-in page
-│  │  │  ├─ hme.ts         HME client (direct, cookie-authenticated)
-│  │  │  └─ constants.ts   endpoints / UA / constants
-│  │  ├─ imap/             imapflow client + verification-code and login-link extraction
-│  │  ├─ services/         accounts / aliases / apiKeys / imap / marks business layer
-│  │  │                    + three background schedulers
-│  │  └─ api/              Fastify routes + API-key middleware
-│  └─ scripts/             browser-check / login-flow-check / api-smoketest (developer self-checks)
-├─ iCloudEmail-FrontEnd/   Frontend (React + Vite + TypeScript console)
-│  └─ src/pages/           Accounts / Alias library / Recent mail / API keys
-└─ scripts/dev.mjs         cross-platform parallel dev launcher (replaces the shell `&`)
+├── iCloudEmail-Desktop/          Electron lifecycle, secure window, child server, packaging
+├── iCloudEmail-BackEnd/
+│   ├── src/api/                  Fastify routes, auth, validation, error envelope
+│   ├── src/services/             Account, alias, mark, IMAP, overview, scheduler logic
+│   ├── src/icloud/               SRP, Apple auth, HME client, browser session refresh
+│   ├── src/imap/                 Bounded IMAP fetch and code/link extraction
+│   ├── src/db/                   SQLite schema and migrations
+│   └── test/                     API, migration, security, sync, and policy tests
+├── iCloudEmail-FrontEnd/
+│   ├── src/components/           Shared icons and error boundary
+│   ├── src/features/             Account, alias, and mail feature modules
+│   ├── src/pages/                Overview and route-level screens
+│   └── test/                     Pure UI business-logic tests
+├── scripts/                      Dev orchestration, doctor, and metadata checks
+├── .github/workflows/            Cross-platform CI and tagged releases
+└── docs/                         Real screenshots from the current production build
 ```
 
-### Why three directories instead of just "frontend + backend"
-
-They do genuinely different jobs:
-
-- **`iCloudEmail-FrontEnd/`** is the interface (React builds down to static files). It has no idea what a "window" is.
-- **`iCloudEmail-BackEnd/`** is the service (Fastify + SQLite). It has no idea what the interface looks like.
-- **`iCloudEmail-Desktop/`** is the **shell** that assembles the two: it opens a 1300×920 window, spawns the backend in the background, points the window at `http://127.0.0.1:8787/`, pins data to the OS userData directory, kills the backend on close, and builds the installers with electron-builder. **Without it there is no desktop app** — only "start the backend from a terminal, then type an address into a browser".
-
-The shell also has to be its own npm package: better-sqlite3 is a native module and Electron's main process has a different ABI from Node's, so the backend **does not run inside Electron — it is spawned as a real `node` child process** (with `node` / `node.exe` shipped alongside in packaged builds). That is also why the heavyweight electron / electron-builder dev dependencies must stay isolated in the shell and out of the backend's production dependency tree: packaging copies the backend's dependencies exactly as `npm ls --omit=dev` reports them, and `npmRebuild: false` keeps the native modules on Node's ABI instead of rebuilding them for Electron's.
-
-> The npm package names are still `@icloud-hme/server` / `/web` / `/desktop` (`--workspace` takes package names, not directory names), and the resources inside the installer still use the short names `server/` and `web/`.
-
-## Field alignment with Apple's API
-
-HME requests go to `{webservices.premiummailsettings.url}` with `clientBuildNumber`, `clientMasteringNumber`, `clientId` and `dsid` as query parameters.
-
-| Operation       | Method | Path                      | Body                            | Response                                                        |
-| --------------- | ------ | ------------------------- | ------------------------------- | --------------------------------------------------------------- |
-| Generate        | POST   | `/v1/hme/generate`        | `{}`                            | `{ success, result: { hme } }`                                  |
-| Reserve         | POST   | `/v1/hme/reserve`         | `{ hme, label, note }`          | `{ success, result: { hme: HmeEmail } }`                        |
-| List            | GET    | `/v2/hme/list`            | —                              | `{ result: { hmeEmails, selectedForwardTo, forwardToEmails } }` |
-| Update metadata | POST   | `/v1/hme/updateMetaData`  | `{ anonymousId, label, note? }` | `{ success }`                                                   |
-| Deactivate      | POST   | `/v1/hme/deactivate`      | `{ anonymousId }`               | `{ success }`                                                   |
-| Reactivate      | POST   | `/v1/hme/reactivate`      | `{ anonymousId }`               | `{ success }`                                                   |
-| Delete          | POST   | `/v1/hme/delete`          | `{ anonymousId }`               | `{ success }`                                                   |
-| Forward-to      | POST   | `/v1/hme/updateForwardTo` | `{ forwardToEmail }`            | `{ success }`                                                   |
-
-`HmeEmail` fields (verbatim): `origin`, `anonymousId`, `domain`, `forwardToEmail`, `hme`, `isActive`, `label`, `note`, `createTimestamp`, `recipientMailId`.
-
-Type definitions live in [`iCloudEmail-BackEnd/src/icloud/types.ts`](iCloudEmail-BackEnd/src/icloud/types.ts).
-
-## This project's REST API
-
-Every `/api/*` call needs `Authorization: Bearer <API_KEY>` (or `X-API-Key`). Mutations require the `write` scope, reads require `read`. Desktop mode sets `DISABLE_AUTH=true` and skips auth entirely.
-
-```
-GET    /health
-GET    /api/config                     # {authDisabled} — is local no-auth mode on (unauthenticated)
-
-GET    /api/apikeys/bootstrap          # {needsBootstrap} — is a first key needed (unauthenticated)
-POST   /api/apikeys                    # create a key (unauthenticated bootstrap while none exists)
-GET    /api/apikeys
-POST   /api/apikeys/:id/revoke
-DELETE /api/apikeys/:id
-
-GET    /api/accounts
-GET    /api/accounts/:id               # poll this for login progress (status)
-POST   /api/accounts/login             # {appleId, password, label?, china?} → {accountId, status:'awaiting_code', phone}
-POST   /api/accounts/:id/verify-code   # {code} submit the SMS code, completing login
-POST   /api/accounts/:id/resend-code   # resend the code
-POST   /api/accounts/:id/resume-code   # resume an interrupted code flow
-POST   /api/accounts/:id/relogin       # re-login (with no body: silent re-login via stored password + trust token)
-POST   /api/accounts/:id/recover       # recover an expired session: cookie refresh → silent re-login
-POST   /api/accounts/:id/settings      # account settings (label, stored password, auto-create aliases, …)
-POST   /api/accounts/:id/disabled      # disable/enable this account's background jobs
-POST   /api/accounts/:id/open-page     # open a signed-in Apple page with Playwright
-POST   /api/accounts/:id/imap          # bind this account's IMAP (app-specific password)
-POST   /api/accounts/:id/imap/test
-DELETE /api/accounts/:id/imap
-DELETE /api/accounts/:id
-
-GET    /api/accounts/:id/aliases                       # local cache
-POST   /api/accounts/:id/aliases/sync                  # pull from iCloud and refresh
-POST   /api/accounts/:id/aliases/generate              # → {hme}
-POST   /api/accounts/:id/aliases/reserve               # {hme, label, note?}
-POST   /api/accounts/:id/aliases                       # {label, note?} generate + reserve
-POST   /api/accounts/:id/aliases/batch                 # {count, label?, note?} batch generate → {created[], errors[]}
-POST   /api/accounts/:id/aliases/forward-to            # {forwardToEmail} change the forwarding target
-POST   /api/accounts/:id/aliases/:anonymousId/deactivate
-POST   /api/accounts/:id/aliases/:anonymousId/reactivate
-PATCH  /api/accounts/:id/aliases/:anonymousId/used     # {used} mark as "used"
-GET    /api/accounts/:id/aliases/:anonymousId/mail     # mail for this alias (incl. code/login-link extraction)
-POST   /api/accounts/:id/aliases/scan-marks            # scan this account's inbox and apply mark rules
-DELETE /api/accounts/:id/aliases/:anonymousId
-
-GET    /api/aliases                     # every alias across accounts (with marks) — the alias library
-GET    /api/aliases/mail-library?sinceMinutes=1440   # cross-alias inbox — recent mail
-POST   /api/aliases/sync                # sync every account that has mail connected
-POST   /api/aliases/scan-marks          # full scan, applying mark rules
-
-GET    /api/mark-rules                  # CRUD for mark rules
-POST   /api/mark-rules
-PATCH  /api/mark-rules/:id
-DELETE /api/mark-rules/:id
-GET    /api/mark-rules/orphans          # marks with no matching rule
-POST   /api/mark-rules/marks/rename     # {from, to}
-DELETE /api/mark-rules/marks/:mark
-GET    /api/mark-rules/export           # export / import rules
-POST   /api/mark-rules/import
-
-GET    /api/imap
-POST   /api/imap                        # {label, host, port?, secure?, username, password, accountId?}
-POST   /api/imap/:id/test
-GET    /api/imap/:id/codes?sinceMinutes=&limit=&filterTo=
-POST   /api/imap/fetch                  # one-shot fetch (credentials are not stored)
-DELETE /api/imap/:id
-
-GET    /api/auto-create-logs            # run log for automatic alias creation
-```
-
-Example (generate and reserve one alias):
+## Development and builds
 
 ```bash
-curl -X POST http://127.0.0.1:8787/api/accounts/$ACCOUNT_ID/aliases \
-  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
-  -d '{"label":"Some signup","note":"2026-07"}'
+npm run doctor              # environment and native-module diagnostics
+npm run dev                 # backend + Vite frontend
+npm run check               # metadata, formatting, lint, types, tests, production build
+npm run audit:dependencies  # high-severity dependency audit
+npm run package:mac         # unpacked macOS app, on macOS
+npm run package:win         # unpacked Windows app, on Windows
+npm run dist:mac            # signed/notarized when credentials are supplied
+npm run dist:win            # NSIS installer
 ```
 
-## Login flow
+Tagged `v*` pushes run the release workflow and publish checksummed artifacts. Signing credentials are optional for local builds but recommended for public distribution.
 
-1. `POST /api/accounts/login` ("Add account" in the UI: Apple ID + password) → the server completes the **SRP-6a** handshake, Apple sends an SMS code, and the response carries `status: "awaiting_code"` plus the last four digits of the phone number. **No browser window opens.**
-2. `POST /api/accounts/:id/verify-code` submits the code (`resend-code` sends a new one) → session cookies and the trust token are captured, `dsid` and the `premiummailsettings` URL are discovered, and the status becomes `active`.
-3. From then on every HME operation uses the encrypted, persisted cookies against the iCloud API. On `401/421` the app tries, in order: ① a **silent cookie refresh** through the Playwright persistent profile; ② if a login password was saved under "Edit account", a **headless re-login with password + trust token** (Apple's trust skips 2FA for ~30 days); ③ only if both fail is the account marked `session_expired`, which requires entering an SMS code again.
-4. The background session keeper runs that same keep-alive for every account every `SESSION_REFRESH_MINUTES` minutes (default 180), so sessions rarely reach expiry at all.
+## FAQ and troubleshooting
 
-## IMAP verification codes
+**Why does login require an SMS code?**
 
-- iCloud mailboxes need an **app-specific password** (create one at [appleid.apple.com](https://appleid.apple.com)); the server is `imap.mail.me.com:993` (TLS).
-- The extractor scores 4–8 digit candidates, favouring ones near keywords like "verification/code/验证码/OTP", six-digit ones, and ones appearing in the subject. `filterTo` narrows the search to mail sent to a specific alias.
+A new Apple client is not trusted yet. The SMS step is explicit and interactive; session keep-alive and automatic recovery never send one.
 
-## Security notes
+**Apple ID password or app-specific password?**
 
-- `SECRET_MASTER_KEY` derives the AES-256-GCM key that encrypts iCloud passwords, sessions and IMAP passwords. **Changing it makes existing ciphertext undecryptable** (you would have to log in / re-enter secrets). Always set a strong random value in production — never the development default.
-- The **Apple ID password** you may optionally save under "Edit account" (used for automatic re-login after session expiry) is likewise AES-256-GCM encrypted in the local SQLite database (the desktop master key lives in `master.key` under userData). Desktop mode is single-user and local, which makes that risk acceptable; "clear stored password" is available at any time.
-- API keys are stored as SHA-256; the plaintext is returned exactly once, at creation.
-- **It listens on `127.0.0.1` only and has no internet-facing component.** All `/api/*` routes require an API key (except in desktop mode, where `DISABLE_AUTH=true`); there is no unauthenticated public entry point.
-- `.env` and `data/` (SQLite) are already in `.gitignore` — never commit them.
+The Apple ID password creates the HME web session. The app-specific password reads forwarded mail over IMAP. They are configured separately.
 
-## Developer self-checks
+**Why does the app say the saved password is missing?**
 
-```bash
-cd iCloudEmail-BackEnd
-npx tsx scripts/browser-check.ts     # verify Playwright can launch the local browser (Chrome/Edge/Chromium)
-npx tsx scripts/login-flow-check.ts  # exercise the login pipeline without credentials (headless, short timeout — an error is expected)
-npx tsx scripts/api-smoketest.ts     # exercise auth/scopes/validation/routes via Fastify inject
-```
+You opted out of storing it, cleared it later, or restored a database without a valid encrypted value. Enter it again for an explicit login.
 
-Type checking: `npm run typecheck`.
+**Why is mail empty?**
 
-## Support the project
+Confirm the account has an app-specific password, use the Apple ID receiving the forwarded mail as IMAP username, and press **Refresh**. Large/attachment-heavy messages are skipped to protect memory.
 
-This started as a tool I built for myself; it is open source so that anyone with the same need has less to figure out. If it helped you:
+**Why does a synced alias disappear and later return?**
 
-- ⭐ **Star the repo** — it takes a second, it is the most tangible encouragement a small project gets, and it helps the next person looking for exactly this actually find it
-- 🐛 Hit a rough edge? Open an [issue](https://github.com/LYH105/iCloudEmail-Lite/issues) — bug reports and feature requests are both welcome
-- 🔀 Know a better way to do something? PRs are open
+Apple occasionally returns incomplete snapshots. Missing aliases are hidden rather than destroyed; local marks and “used” state are restored if the alias returns.
 
-<a href="https://github.com/LYH105/iCloudEmail-Lite/stargazers"><img src="https://api.star-history.com/svg?repos=LYH105/iCloudEmail-Lite&type=Date" alt="Star History Chart" width="600"></a>
+**`better-sqlite3` cannot load its native binding.**
 
-## Disclaimer
+Use Node.js 22.12+ and run `npm install` on the current operating system. If the repository was copied with `node_modules`, remove those dependency directories and reinstall.
 
-- This is an **unofficial** third-party tool. It is not affiliated with, authorized by, or endorsed by Apple Inc. Apple, iCloud and Hide My Email are trademarks of Apple Inc.
-- The HME endpoints are **private** Apple APIs; fields are matched against the behaviour of the official web client (see [maxktz/icloud-hidemyemail-generator](https://github.com/maxktz/icloud-hidemyemail-generator)). Apple's actual responses are the source of truth, and this project may break at any time.
-- Shard hostnames like `p68-maildomainws` differ per account, so the `premiummailsettings` service URL is discovered dynamically via `validate` rather than hardcoded.
-- Use it only for Apple accounts **you own**. You accept the risk to your accounts (including Apple's anti-abuse measures and terms of service).
-- Released under the [MIT License](LICENSE): free to use, modify, distribute and sell, the only condition being that the copyright notice and licence text travel with it. The software is provided "as is", without warranty of any kind.
+**macOS blocks an unsigned local build.**
+
+Right-click the app and choose **Open**, or build with your Developer ID credentials. Do not disable system-wide Gatekeeper protections.
+
+**Can this run on a public server?**
+
+That is not the supported use case. Browser/server mode supports scoped API keys, but Apple credentials, mail, and local browser profiles make a single-user loopback deployment the intended security model.
+
+## Security and privacy notes
+
+- Secrets are encrypted at rest; API keys are hashed and never stored in plaintext.
+- Email HTML is rendered in a sandbox with scripts disabled. Remote images require explicit opt-in and are HTTPS-only.
+- API/health responses use `no-store`; the production UI receives CSP, referrer, permissions, and MIME-sniffing protections.
+- Mail parsing limits each message to 2 MiB and each pull to 24 MiB of source data.
+- Deleting an account also removes its local profile, but only after verifying the path remains inside the configured profiles directory.
+
+## License and disclaimer
+
+[MIT](LICENSE). Apple, iCloud, Hide My Email, macOS, and related marks belong to Apple Inc. Private APIs can change without notice; use the project with accounts and data you are authorized to manage.

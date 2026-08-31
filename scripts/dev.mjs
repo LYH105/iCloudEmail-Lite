@@ -1,57 +1,117 @@
-/*
- * Run the backend and the web console side by side.
- *
- * `npm run dev:server & npm run dev:web` only works in a POSIX shell — on
- * Windows npm hands the script to cmd.exe, where `&` is a sequential separator,
- * so the web dev server would never start until the backend exits. Spawning
- * both from Node keeps one command working the same on macOS and Windows.
- */
-import { spawn } from 'node:child_process';
+/* Run the backend and web console together with cross-platform process cleanup. */
+import { existsSync } from 'node:fs';
+import net from 'node:net';
+import { join } from 'node:path';
+import process from 'node:process';
+import { spawn, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
+const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const isWindows = process.platform === 'win32';
 const npm = isWindows ? 'npm.cmd' : 'npm';
-
-const workspaces = [
-  { name: 'server', workspace: '@icloud-hme/server' },
-  { name: 'web', workspace: '@icloud-hme/web' },
-];
-
-const children = workspaces.map(({ name, workspace }) => {
-  const child = spawn(npm, ['run', 'dev', '--workspace', workspace], {
-    stdio: 'inherit',
-    // Node refuses to spawn a .cmd/.bat directly (throws EINVAL) unless a shell
-    // is used, so Windows needs npm.cmd + shell; POSIX spawns the npm binary.
-    shell: isWindows,
-    windowsHide: true,
-  });
-  child.on('error', (err) => {
-    console.error(`[${name}] failed to start: ${err.message}`);
-    shutdown(1);
-  });
-  child.on('exit', (code, signal) => {
-    console.log(`[${name}] exited (${signal ?? code})`);
-    // One half of the pair is useless on its own — take the other down too.
-    shutdown(code ?? 0);
-  });
-  return child;
-});
-
+const children = [];
 let shuttingDown = false;
+let requestedExitCode = 0;
+
+function nodeVersionSupported() {
+  const [major, minor] = process.versions.node.split('.').map(Number);
+  return major > 22 || (major === 22 && minor >= 12);
+}
+
+function assertPrerequisites() {
+  if (!nodeVersionSupported()) {
+    throw new Error(`Node.js ${process.versions.node} 不受支持；请安装 Node.js 22.12 或更高版本。`);
+  }
+  for (const command of ['tsx', 'vite']) {
+    const filename = isWindows ? `${command}.cmd` : command;
+    if (!existsSync(join(root, 'node_modules', '.bin', filename))) {
+      throw new Error(`缺少 ${command}。请先在项目根目录运行 npm install。`);
+    }
+  }
+}
+
+function assertBackendPortAvailable() {
+  return new Promise((resolve, reject) => {
+    const configured = Number(process.env.PORT || 8787);
+    if (!Number.isInteger(configured) || configured < 1 || configured > 65_535) {
+      reject(new Error(`PORT 必须是 1-65535 的整数，当前值为 ${process.env.PORT}`));
+      return;
+    }
+    const probe = net.createServer();
+    probe.unref();
+    probe.once('error', (error) => {
+      if (error.code === 'EADDRINUSE') {
+        reject(new Error(`开发端口 ${configured} 已被占用。请先退出已运行的服务或设置其他 PORT。`));
+      } else {
+        reject(error);
+      }
+    });
+    probe.listen({ host: '127.0.0.1', port: configured, exclusive: true }, () => probe.close(resolve));
+  });
+}
+
+function terminateTree(child, force = false) {
+  if (!child.pid || child.exitCode !== null) return;
+  if (isWindows) {
+    spawnSync('taskkill', ['/PID', String(child.pid), '/T', ...(force ? ['/F'] : [])], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    return;
+  }
+  try {
+    process.kill(-child.pid, force ? 'SIGKILL' : 'SIGTERM');
+  } catch (error) {
+    if (error.code !== 'ESRCH') throw error;
+  }
+}
+
 function shutdown(code) {
   if (shuttingDown) return;
   shuttingDown = true;
-  for (const child of children) {
-    if (child.exitCode === null && !child.killed) {
-      try {
-        // Terminates on both platforms: a real signal on POSIX, TerminateProcess
-        // on Windows (where the signal name is ignored).
-        child.kill('SIGTERM');
-      } catch {
-        /* already gone */
-      }
-    }
-  }
-  process.exitCode = code;
+  requestedExitCode = code;
+  for (const child of children) terminateTree(child);
+
+  const forceTimer = setTimeout(() => {
+    for (const child of children) terminateTree(child, true);
+  }, 3_000);
+  forceTimer.unref();
+}
+
+function maybeFinish() {
+  if (!shuttingDown || children.some((child) => child.exitCode === null)) return;
+  process.exitCode = requestedExitCode;
+}
+
+try {
+  assertPrerequisites();
+  await assertBackendPortAvailable();
+} catch (error) {
+  console.error(`无法启动开发环境：${error instanceof Error ? error.message : error}`);
+  process.exit(1);
+}
+
+for (const { name, workspace } of [
+  { name: 'server', workspace: '@icloud-hme/server' },
+  { name: 'web', workspace: '@icloud-hme/web' },
+]) {
+  const child = spawn(npm, ['run', 'dev', '--workspace', workspace], {
+    cwd: root,
+    stdio: 'inherit',
+    shell: isWindows,
+    windowsHide: true,
+    detached: !isWindows,
+  });
+  children.push(child);
+  child.on('error', (error) => {
+    console.error(`[${name}] 启动失败：${error.message}`);
+    shutdown(1);
+  });
+  child.on('exit', (code, signal) => {
+    console.log(`[${name}] 已退出（${signal ?? code}）`);
+    if (!shuttingDown) shutdown(code === 0 ? 0 : 1);
+    maybeFinish();
+  });
 }
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

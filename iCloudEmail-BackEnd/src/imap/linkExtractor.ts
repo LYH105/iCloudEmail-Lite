@@ -68,7 +68,9 @@ const decodeEntities = (s: string): string =>
     .replace(/&#39;/gi, "'");
 
 const stripTags = (s: string): string =>
-  decodeEntities(s.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+  decodeEntities(s.replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
 
 function keywordScore(text: string): number {
   const lower = text.toLowerCase();

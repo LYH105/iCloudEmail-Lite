@@ -68,20 +68,49 @@ export function createApiKey(name: string, scopes: Scope[] = ['read', 'write']):
 }
 
 export function listApiKeys(): ApiKeyPublic[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM api_keys ORDER BY created_at DESC')
-    .all() as ApiKeyRow[];
+  const rows = getDb().prepare('SELECT * FROM api_keys ORDER BY created_at DESC').all() as ApiKeyRow[];
   return rows.map(toPublic);
 }
 
+function hasWriteScope(row: Pick<ApiKeyRow, 'scopes'>): boolean {
+  return row.scopes.split(',').includes('write');
+}
+
+function assertNotLastActiveWriter(db: ReturnType<typeof getDb>, row: ApiKeyRow): void {
+  if (row.revoked === 1 || !hasWriteScope(row)) return;
+  const activeWriters = db
+    .prepare(
+      `SELECT COUNT(*) AS n
+         FROM api_keys
+        WHERE revoked = 0
+          AND (',' || scopes || ',') LIKE '%,write,%'`,
+    )
+    .get() as { n: number };
+  if (activeWriters.n <= 1) {
+    throw Object.assign(new Error('不能撤销或删除最后一个有效的 write API Key，请先创建新密钥'), {
+      status: 409,
+    });
+  }
+}
+
 export function revokeApiKey(id: string): boolean {
-  const info = getDb().prepare('UPDATE api_keys SET revoked = 1 WHERE id = ?').run(id);
-  return info.changes > 0;
+  const db = getDb();
+  return db.transaction((keyId: string) => {
+    const row = db.prepare('SELECT * FROM api_keys WHERE id = ?').get(keyId) as ApiKeyRow | undefined;
+    if (!row) return false;
+    assertNotLastActiveWriter(db, row);
+    return db.prepare('UPDATE api_keys SET revoked = 1 WHERE id = ?').run(keyId).changes > 0;
+  })(id);
 }
 
 export function deleteApiKey(id: string): boolean {
-  const info = getDb().prepare('DELETE FROM api_keys WHERE id = ?').run(id);
-  return info.changes > 0;
+  const db = getDb();
+  return db.transaction((keyId: string) => {
+    const row = db.prepare('SELECT * FROM api_keys WHERE id = ?').get(keyId) as ApiKeyRow | undefined;
+    if (!row) return false;
+    assertNotLastActiveWriter(db, row);
+    return db.prepare('DELETE FROM api_keys WHERE id = ?').run(keyId).changes > 0;
+  })(id);
 }
 
 export interface VerifiedKey {
@@ -93,9 +122,8 @@ export interface VerifiedKey {
 export function verifyApiKey(rawKey: string): VerifiedKey | null {
   if (!rawKey.startsWith(KEY_PREFIX)) return null;
   const hash = sha256Hex(rawKey);
-  const row = getDb()
-    .prepare('SELECT * FROM api_keys WHERE key_hash = ? AND revoked = 0')
-    .get(hash) as ApiKeyRow | undefined;
+  const row = getDb().prepare('SELECT * FROM api_keys WHERE key_hash = ? AND revoked = 0').get(hash) as
+    ApiKeyRow | undefined;
   if (!row) return null;
   // Constant-time confirmation on the stored hash.
   if (!safeEqualHex(hash, row.key_hash)) return null;
@@ -103,8 +131,15 @@ export function verifyApiKey(rawKey: string): VerifiedKey | null {
   return { id: row.id, scopes: row.scopes.split(',').filter(Boolean) as Scope[] };
 }
 
-/** True when no keys exist yet — used to bootstrap the first key without auth. */
-export function hasAnyApiKey(): boolean {
-  const row = getDb().prepare('SELECT COUNT(*) AS n FROM api_keys').get() as { n: number };
+/** True when browser mode has a usable writer; otherwise bootstrap is recoverable. */
+export function hasActiveWriteApiKey(): boolean {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS n
+         FROM api_keys
+        WHERE revoked = 0
+          AND (',' || scopes || ',') LIKE '%,write,%'`,
+    )
+    .get() as { n: number };
   return row.n > 0;
 }

@@ -43,7 +43,12 @@ export interface FetchedMessage {
  * so this is what alias matching scans.
  */
 function headerBlock(source: Buffer): string {
-  return source.subarray(0, 12000).toString('utf8').split(/\r?\n\r?\n/, 1)[0] ?? '';
+  return (
+    source
+      .subarray(0, 12000)
+      .toString('utf8')
+      .split(/\r?\n\r?\n/, 1)[0] ?? ''
+  );
 }
 
 function addressText(value: unknown): string {
@@ -71,9 +76,17 @@ function friendlyImapError(err: unknown): Error {
   const e = err as { authenticationFailed?: boolean; responseText?: string };
   if (e?.authenticationFailed || /authentication\s*failed/i.test(e?.responseText ?? '')) {
     return Object.assign(
-      new Error('邮箱登录失败：App 专用密码无效或已被撤销，请到「账户」页编辑该账户，重新生成并填写 App 专用密码'),
+      new Error(
+        '邮箱登录失败：App 专用密码无效或已被撤销，请到「账户」页编辑该账户，重新生成并填写 App 专用密码',
+      ),
       { status: 401 },
     );
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  if (/\b(?:ETIMEDOUT|timeout|timed out)\b/i.test(message)) {
+    return Object.assign(new Error('邮箱服务器响应超时，请检查网络或稍后重试'), {
+      status: 504,
+    });
   }
   return err instanceof Error ? err : new Error(String(err));
 }
@@ -101,7 +114,11 @@ function buildClient(cfg: ImapConnectionConfig): ImapFlow {
     secure: cfg.secure,
     auth: { user: cfg.username, pass: cfg.password },
     logger: false,
-    // iCloud/most providers are fine with the default; keep TLS strict.
+    // Bound every network phase so one unreachable provider cannot stall a
+    // foreground refresh or background scan indefinitely.
+    connectionTimeout: 30_000,
+    greetingTimeout: 15_000,
+    socketTimeout: 60_000,
   });
 }
 
@@ -113,6 +130,31 @@ function buildClient(cfg: ImapConnectionConfig): ImapFlow {
 const pool = new Map<string, ImapFlow>();
 const idleTimers = new Map<string, NodeJS.Timeout>();
 const IDLE_LOGOUT_MS = 3 * 60_000;
+/** Verification mail should be small; never materialize attachment-heavy mail. */
+export const MAX_MESSAGE_SOURCE_BYTES = 2 * 1024 * 1024;
+export const MAX_FETCH_SOURCE_BYTES = 24 * 1024 * 1024;
+const HEADER_PREFILTER_BYTES = 16 * 1024;
+
+/** Pick newest messages while enforcing both a count and aggregate byte cap. */
+export function selectUidsWithinBudget(
+  candidates: number[],
+  sizes: ReadonlyMap<number, number>,
+  limit: number,
+  budget = MAX_FETCH_SOURCE_BYTES,
+): number[] {
+  const selected: number[] = [];
+  let used = 0;
+  for (let index = candidates.length - 1; index >= 0 && selected.length < limit; index--) {
+    const uid = candidates[index];
+    if (uid === undefined) continue;
+    const size = sizes.get(uid);
+    if (size === undefined || size < 0 || size > MAX_MESSAGE_SOURCE_BYTES) continue;
+    if (used + size > budget) continue;
+    selected.push(uid);
+    used += size;
+  }
+  return selected.reverse();
+}
 
 /** @internal Stable pool identity; includes a one-way credential fingerprint. */
 export function connectionPoolKey(cfg: ImapConnectionConfig): string {
@@ -216,35 +258,61 @@ async function fetchOnce(client: ImapFlow, options: FetchOptions): Promise<Fetch
     let selected: number[];
     const headerByUid = new Map<number, string>();
     if (prefilter.length > 0) {
-      // Phase 1: headers only, wide window, keep mail addressed to us.
+      // Phase 1: a bounded header prefix plus RFC822.SIZE over a wide window.
+      // This prevents a maliciously huge header block from being materialized.
       const window = uids.slice(-300);
-      const matched: number[] = [];
+      const matched = new Set<number>();
+      const sizeByUid = new Map<number, number>();
       for await (const msg of client.fetch(
         window,
-        { uid: true, headers: true },
+        { uid: true, size: true, source: { maxLength: HEADER_PREFILTER_BYTES } },
         { uid: true },
       )) {
-        const header = msg.headers?.toString('utf8') ?? '';
+        if (typeof msg.size !== 'number' || msg.size > MAX_MESSAGE_SOURCE_BYTES) continue;
+        sizeByUid.set(msg.uid, msg.size);
+        const header = msg.source ? headerBlock(msg.source) : '';
         if (!header) continue;
         const lower = header.toLowerCase();
         if (prefilter.some((p) => lower.includes(p))) {
-          matched.push(msg.uid);
+          matched.add(msg.uid);
           headerByUid.set(msg.uid, header);
         }
       }
-      selected = matched.slice(-limit);
+      selected = selectUidsWithinBudget(
+        window.filter((uid) => matched.has(uid)),
+        sizeByUid,
+        limit,
+      );
     } else {
-      selected = uids.slice(-limit);
+      // Look slightly farther back so a few attachment-heavy messages do not
+      // hide all otherwise valid recent verification mail.
+      const candidates = uids.slice(-Math.max(limit * 3, limit));
+      const sizeByUid = new Map<number, number>();
+      for await (const msg of client.fetch(candidates, { uid: true, size: true }, { uid: true })) {
+        if (typeof msg.size === 'number') sizeByUid.set(msg.uid, msg.size);
+      }
+      selected = selectUidsWithinBudget(candidates, sizeByUid, limit);
     }
     if (selected.length === 0) return [];
 
     // Phase 2: full source only for the messages we actually want.
     for await (const message of client.fetch(
       selected,
-      { uid: true, envelope: true, source: true },
+      {
+        uid: true,
+        envelope: true,
+        size: true,
+        source: { maxLength: MAX_MESSAGE_SOURCE_BYTES + 1 },
+      },
       { uid: true },
     )) {
       if (!message.source) continue;
+      if (
+        message.source.length > MAX_MESSAGE_SOURCE_BYTES ||
+        (typeof message.size === 'number' && message.size > MAX_MESSAGE_SOURCE_BYTES)
+      ) {
+        continue;
+      }
       const parsed = await PostalMime.parse(message.source);
       const to = addressText(parsed.to) || addressText(message.envelope?.to);
       const subject = parsed.subject ?? message.envelope?.subject ?? '';

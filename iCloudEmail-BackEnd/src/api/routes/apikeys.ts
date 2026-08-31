@@ -1,20 +1,29 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { config } from '../../config.js';
 import { authenticate, requireScope } from '../auth.js';
 import { parse } from '../errors.js';
 import * as keys from '../../services/apiKeyService.js';
 
 const createSchema = z.object({
   name: z.string().min(1).max(120),
-  scopes: z.array(z.enum(['read', 'write'])).min(1).optional(),
+  scopes: z
+    .array(z.enum(['read', 'write']))
+    .min(1)
+    .optional(),
 });
 
 /**
- * Allow the very first key to be created without authentication (bootstrap);
- * once any key exists, creation requires an authenticated write-scoped key.
+ * Allow recovery bootstrap only while no active write-scoped key exists;
+ * otherwise creation requires an authenticated write-scoped key.
  */
 async function authOrBootstrap(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (!keys.hasAnyApiKey()) return;
+  if (config.authDisabled) {
+    await authenticate(req, reply);
+    await requireScope('write')(req, reply);
+    return;
+  }
+  if (!keys.hasActiveWriteApiKey()) return;
   await authenticate(req, reply);
   await requireScope('write')(req, reply);
 }
@@ -24,7 +33,7 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
   const write = { preHandler: [authenticate, requireScope('write')] };
 
   // Public: lets the console decide whether to show the bootstrap screen.
-  app.get('/bootstrap', async () => ({ needsBootstrap: !keys.hasAnyApiKey() }));
+  app.get('/bootstrap', async () => ({ needsBootstrap: !keys.hasActiveWriteApiKey() }));
 
   app.get('/', read, async () => ({ apiKeys: keys.listApiKeys() }));
 

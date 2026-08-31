@@ -1,5 +1,5 @@
 import { rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { config } from '../config.js';
 import { getDb } from '../db/index.js';
 import { decryptJson, decryptSecret, encryptJson, encryptSecret } from '../crypto/secrets.js';
@@ -96,9 +96,8 @@ function toPublic(row: AccountRow): AccountPublic {
 }
 
 function getRow(id: string): AccountRow | undefined {
-  return getDb()
-    .prepare(`SELECT *, ${IMAP_COLS} FROM accounts WHERE id = ?`)
-    .get(id) as AccountRow | undefined;
+  return getDb().prepare(`SELECT *, ${IMAP_COLS} FROM accounts WHERE id = ?`).get(id) as
+    AccountRow | undefined;
 }
 
 export function listAccounts(): AccountPublic[] {
@@ -141,23 +140,23 @@ function persistSession(id: string, s: SessionFields): void {
              status = 'active', last_error = NULL, updated_at = ?
        WHERE id = ?`,
     )
+    .run(s.appleId, s.dsid, s.webserviceUrl, encryptSecret(s.cookie), encryptJson(s.cookies), Date.now(), id);
+}
+
+function persistCredentials(
+  id: string,
+  password: string,
+  trustToken: string,
+  rememberPassword: boolean,
+): void {
+  getDb()
+    .prepare('UPDATE accounts SET login_password_enc = ?, trust_token_enc = ?, updated_at = ? WHERE id = ?')
     .run(
-      s.appleId,
-      s.dsid,
-      s.webserviceUrl,
-      encryptSecret(s.cookie),
-      encryptJson(s.cookies),
+      rememberPassword ? encryptSecret(password) : null,
+      trustToken ? encryptSecret(trustToken) : null,
       Date.now(),
       id,
     );
-}
-
-function persistCredentials(id: string, password: string, trustToken: string): void {
-  getDb()
-    .prepare(
-      'UPDATE accounts SET login_password_enc = ?, trust_token_enc = ?, updated_at = ? WHERE id = ?',
-    )
-    .run(encryptSecret(password), trustToken ? encryptSecret(trustToken) : null, Date.now(), id);
 }
 
 /** Save an Apple ID password as soon as Apple has accepted it.
@@ -173,6 +172,12 @@ function persistPasswordOnly(id: string, password: string): void {
     .run(encryptSecret(password), Date.now(), id);
 }
 
+function clearPasswordOnly(id: string): void {
+  getDb()
+    .prepare('UPDATE accounts SET login_password_enc = NULL, updated_at = ? WHERE id = ?')
+    .run(Date.now(), id);
+}
+
 function persistTrustTokenOnly(id: string, trustToken: string): void {
   if (!trustToken) return;
   getDb()
@@ -181,7 +186,13 @@ function persistTrustTokenOnly(id: string, trustToken: string): void {
 }
 
 function toSessionFields(s: AuthedSession): SessionFields {
-  return { appleId: s.appleId, dsid: s.dsid, webserviceUrl: s.webserviceUrl, cookie: s.cookieHeader, cookies: s.cookies };
+  return {
+    appleId: s.appleId,
+    dsid: s.dsid,
+    webserviceUrl: s.webserviceUrl,
+    cookie: s.cookieHeader,
+    cookies: s.cookies,
+  };
 }
 
 function authErrorStatus(err: AuthError): number {
@@ -197,16 +208,48 @@ function rethrowAuthError(err: unknown): never {
 }
 
 export type LoginOutcome =
-  | { accountId: string; status: 'active' }
-  | { accountId: string; status: 'awaiting_code'; phone: string };
+  { accountId: string; status: 'active' } | { accountId: string; status: 'awaiting_code'; phone: string };
 
 /** In-flight 2FA state per account, kept in memory between login and code submission. */
 interface PendingEntry {
   pending: PendingLogin;
   password: string;
+  rememberPassword: boolean;
 }
 const pendingLogins = new Map<string, PendingEntry>();
+const pendingExpiryTimers = new Map<string, NodeJS.Timeout>();
 const PENDING_TTL_MS = 10 * 60_000;
+
+function clearPending(accountId: string): void {
+  pendingLogins.delete(accountId);
+  const timer = pendingExpiryTimers.get(accountId);
+  if (timer) clearTimeout(timer);
+  pendingExpiryTimers.delete(accountId);
+}
+
+function storePending(accountId: string, entry: PendingEntry): void {
+  clearPending(accountId);
+  pendingLogins.set(accountId, entry);
+  const timer = setTimeout(() => clearPending(accountId), PENDING_TTL_MS);
+  timer.unref();
+  pendingExpiryTimers.set(accountId, timer);
+}
+
+export type LoginChallengeIntent = 'explicit_login' | 'silent_recovery';
+export type LoginChallengeAction = 'send_sms' | 'require_explicit_login';
+
+/**
+ * SMS is an interactive side effect. Background keep-alive and transparent
+ * request recovery may refresh trusted sessions, but must never send a code.
+ */
+export function loginChallengeAction(intent: LoginChallengeIntent): LoginChallengeAction {
+  return intent === 'explicit_login' ? 'send_sms' : 'require_explicit_login';
+}
+
+/** Optional for compatibility with clients released before this setting existed. */
+export function shouldRememberPassword(value?: boolean): boolean {
+  return value !== false;
+}
 
 function takePending(accountId: string): PendingEntry {
   const entry = pendingLogins.get(accountId);
@@ -214,7 +257,7 @@ function takePending(accountId: string): PendingEntry {
     throw Object.assign(new Error('没有进行中的短信验证流程，请重新登录'), { status: 409 });
   }
   if (Date.now() - entry.pending.createdAt > PENDING_TTL_MS) {
-    pendingLogins.delete(accountId);
+    clearPending(accountId);
     throw Object.assign(new Error('验证码流程已超时，请重新登录'), { status: 409 });
   }
   return entry;
@@ -224,7 +267,7 @@ function currentPending(accountId: string): PendingEntry | null {
   const entry = pendingLogins.get(accountId);
   if (!entry) return null;
   if (Date.now() - entry.pending.createdAt > PENDING_TTL_MS) {
-    pendingLogins.delete(accountId);
+    clearPending(accountId);
     return null;
   }
   return entry;
@@ -236,17 +279,29 @@ function pendingPhone(entry: PendingEntry): string {
 }
 
 /** Finish a beginLogin() result: persist on success, or stash + send SMS. */
-async function finishLogin(id: string, password: string, result: Awaited<ReturnType<typeof beginLogin>>): Promise<LoginOutcome> {
+async function finishLogin(
+  id: string,
+  password: string,
+  rememberPassword: boolean,
+  result: Awaited<ReturnType<typeof beginLogin>>,
+): Promise<LoginOutcome> {
   if (result.status === 'active') {
     persistSession(id, toSessionFields(result.session));
-    persistCredentials(id, password, result.session.trustToken);
-    pendingLogins.delete(id);
+    persistCredentials(id, password, result.session.trustToken, rememberPassword);
+    clearPending(id);
     return { accountId: id, status: 'active' };
   }
-  // Apple has already accepted these credentials. Persist them before the
-  // SMS request so an app/server restart can rebuild this transient flow.
-  persistPasswordOnly(id, password);
-  pendingLogins.set(id, { pending: result.pending, password });
+  // Apple has already accepted these credentials. Persist them only when the
+  // user consented. Otherwise they remain solely in this short-lived entry;
+  // after a restart the user must explicitly enter the password again.
+  if (rememberPassword) persistPasswordOnly(id, password);
+  else clearPasswordOnly(id);
+  storePending(id, { pending: result.pending, password, rememberPassword });
+  // finishLogin is only used by explicit login/re-login endpoints. Keeping the
+  // policy check here makes that security boundary visible and testable.
+  if (loginChallengeAction('explicit_login') !== 'send_sms') {
+    throw new Error('登录验证策略异常');
+  }
   const { phone } = await sendSms(result.pending);
   setStatus(id, 'awaiting_code');
   return { accountId: id, status: 'awaiting_code', phone };
@@ -257,6 +312,7 @@ export interface StartLoginInput {
   appleId: string;
   password: string;
   china: boolean;
+  rememberPassword?: boolean;
 }
 
 /**
@@ -285,17 +341,29 @@ export async function startLogin(input: StartLoginInput): Promise<LoginOutcome> 
   const profile = join(config.playwright.profilesDir, id);
   getDb()
     .prepare(
-      `INSERT INTO accounts (id, label, apple_id, client_id, china, status, profile_dir, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'awaiting_code', ?, ?, ?)`,
+      `INSERT INTO accounts (
+         id, label, apple_id, client_id, china, status, auto_create_enabled,
+         profile_dir, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, 'awaiting_code', 0, ?, ?, ?)`,
     )
-    .run(id, input.label?.trim() || input.appleId, input.appleId, clientId, input.china ? 1 : 0, profile, now, now);
+    .run(
+      id,
+      input.label?.trim() || input.appleId,
+      input.appleId,
+      clientId,
+      input.china ? 1 : 0,
+      profile,
+      now,
+      now,
+    );
 
-  return finishLogin(id, input.password, result);
+  return finishLogin(id, input.password, shouldRememberPassword(input.rememberPassword), result);
 }
 
 export interface RetryLoginInput {
   password?: string;
   china?: boolean;
+  rememberPassword?: boolean;
 }
 
 /**
@@ -306,7 +374,7 @@ export interface RetryLoginInput {
  */
 export async function retryLogin(id: string, input: RetryLoginInput = {}): Promise<LoginOutcome> {
   const row = getRow(id);
-  if (!row) throw Object.assign(new Error('Account not found'), { status: 404 });
+  if (!row) throw Object.assign(new Error('账户不存在'), { status: 404 });
   const password = input.password ?? (row.login_password_enc ? decryptSecret(row.login_password_enc) : null);
   if (!password) {
     throw Object.assign(new Error('未保存密码，请输入 Apple ID 密码'), { status: 409 });
@@ -316,15 +384,23 @@ export async function retryLogin(id: string, input: RetryLoginInput = {}): Promi
 
   let result;
   try {
-    result = await beginLogin({ appleId: row.apple_id ?? '', password, china, clientId: row.client_id, trustToken });
+    result = await beginLogin({
+      appleId: row.apple_id ?? '',
+      password,
+      china,
+      clientId: row.client_id,
+      trustToken,
+    });
   } catch (err) {
     rethrowAuthError(err);
   }
 
   if (china !== (row.china === 1)) {
-    getDb().prepare('UPDATE accounts SET china = ? WHERE id = ?').run(china ? 1 : 0, id);
+    getDb()
+      .prepare('UPDATE accounts SET china = ? WHERE id = ?')
+      .run(china ? 1 : 0, id);
   }
-  return finishLogin(id, password, result);
+  return finishLogin(id, password, shouldRememberPassword(input.rememberPassword), result);
 }
 
 /**
@@ -337,29 +413,36 @@ export async function resumeCode(accountId: string): Promise<LoginOutcome> {
   if (entry) {
     return { accountId, status: 'awaiting_code', phone: pendingPhone(entry) };
   }
+  const row = getRow(accountId);
+  if (!row) throw Object.assign(new Error('账户不存在'), { status: 404 });
+  if (!row.login_password_enc) {
+    throw Object.assign(
+      new Error('验证码流程已因应用重启或超时失效，且未保存 Apple ID 密码，请重新输入密码登录'),
+      { status: 409 },
+    );
+  }
   return retryLogin(accountId);
 }
 
 /** Resend the SMS code, rebuilding a lost in-memory flow when possible. */
 export async function resendCode(accountId: string): Promise<LoginOutcome> {
   const entry = currentPending(accountId);
-  if (!entry) return retryLogin(accountId);
+  if (!entry) return resumeCode(accountId);
   const { phone } = await sendSms(entry.pending);
   return { accountId, status: 'awaiting_code', phone };
 }
 
 export type CodeOutcome =
-  | { accountId: string; status: 'active' }
-  | { accountId: string; status: 'awaiting_code'; message: string };
+  { accountId: string; status: 'active' } | { accountId: string; status: 'awaiting_code'; message: string };
 
 /** Submit the SMS code for an in-flight 2FA verification. */
 export async function submitCode(accountId: string, code: string): Promise<CodeOutcome> {
-  const { pending, password } = takePending(accountId);
+  const { pending, password, rememberPassword } = takePending(accountId);
   const r = await submitSmsCode(pending, code);
   if (!r.ok) return { accountId, status: 'awaiting_code', message: r.message };
-  pendingLogins.delete(accountId);
+  clearPending(accountId);
   persistSession(accountId, toSessionFields(r.session));
-  persistCredentials(accountId, password, r.session.trustToken);
+  persistCredentials(accountId, password, r.session.trustToken, rememberPassword);
   return { accountId, status: 'active' };
 }
 
@@ -376,7 +459,7 @@ const APPLE_ACCOUNT_URL = 'https://account.apple.com/account/manage';
  */
 export async function openAccountPage(id: string, url?: string): Promise<{ opened: true }> {
   const row = getRow(id);
-  if (!row) throw Object.assign(new Error('Account not found'), { status: 404 });
+  if (!row) throw Object.assign(new Error('账户不存在'), { status: 404 });
   await openPage(id, url ?? APPLE_ACCOUNT_URL, storedCookies(row));
   return { opened: true };
 }
@@ -388,7 +471,7 @@ export async function openAccountPage(id: string, url?: string): Promise<{ opene
  */
 export function setImapPassword(accountId: string, password: string, username?: string): void {
   const row = getRow(accountId);
-  if (!row) throw Object.assign(new Error('Account not found'), { status: 404 });
+  if (!row) throw Object.assign(new Error('账户不存在'), { status: 404 });
   const user = username?.trim() || row.apple_id;
   if (!user) {
     throw Object.assign(new Error('请先完成登录以获取邮箱地址，或手动填写用户名'), { status: 409 });
@@ -412,6 +495,7 @@ export interface AccountSettingsInput {
   imapPassword?: string;
   imapUsername?: string;
   autoCreateEnabled?: boolean;
+  clearLoginPassword?: boolean;
 }
 
 /**
@@ -421,7 +505,7 @@ export interface AccountSettingsInput {
  */
 export function updateSettings(accountId: string, input: AccountSettingsInput): AccountPublic {
   const row = getRow(accountId);
-  if (!row) throw Object.assign(new Error('Account not found'), { status: 404 });
+  if (!row) throw Object.assign(new Error('账户不存在'), { status: 404 });
   const db = getDb();
   const label = input.label?.trim();
   if (label) {
@@ -442,6 +526,16 @@ export function updateSettings(accountId: string, input: AccountSettingsInput): 
   if (input.imapPassword) {
     setImapPassword(accountId, input.imapPassword, input.imapUsername);
   }
+  if (input.clearLoginPassword) {
+    db.prepare(
+      `UPDATE accounts
+          SET login_password_enc = NULL, trust_token_enc = NULL, updated_at = ?
+        WHERE id = ?`,
+    ).run(Date.now(), accountId);
+    // A pending challenge retains the plaintext password in memory. Clearing
+    // the saved credential must clear that transient copy as well.
+    clearPending(accountId);
+  }
   return toPublic(getRow(accountId)!);
 }
 
@@ -452,7 +546,7 @@ export function updateSettings(accountId: string, input: AccountSettingsInput): 
  */
 export function setDisabled(accountId: string, disabled: boolean): AccountPublic {
   const row = getRow(accountId);
-  if (!row) throw Object.assign(new Error('Account not found'), { status: 404 });
+  if (!row) throw Object.assign(new Error('账户不存在'), { status: 404 });
   getDb()
     .prepare('UPDATE accounts SET disabled = ?, updated_at = ? WHERE id = ?')
     .run(disabled ? 1 : 0, Date.now(), accountId);
@@ -461,21 +555,21 @@ export function setDisabled(accountId: string, disabled: boolean): AccountPublic
 
 export interface RecoverResult {
   ok: boolean;
-  outcome: 'cookie' | 'password' | 'busy' | 'expired' | 'awaiting_code';
+  outcome: 'cookie' | 'password' | 'busy' | 'expired' | 'verification_required';
   message: string;
   account: AccountPublic;
 }
 
 type SilentOutcome =
   | { outcome: 'active' }
-  | { outcome: 'awaiting_code'; phone: string }
+  | { outcome: 'verification_required' }
   | { outcome: 'no_password' }
   | { outcome: 'bad_password' };
 
 type SessionRecoveryOutcome =
   | { outcome: 'cookie' }
   | { outcome: 'password' }
-  | { outcome: 'awaiting_code'; phone: string }
+  | { outcome: 'verification_required' }
   | { outcome: 'no_password' }
   | { outcome: 'bad_password' }
   | { outcome: 'busy' };
@@ -485,9 +579,8 @@ const sessionRecoveryFlights = new Map<string, Promise<SessionRecoveryOutcome>>(
 /**
  * Silent SRP relogin using the stored password + trust token — no browser,
  * no user interaction. Succeeds outright when Apple still trusts this client
- * (the common case); falls back to a fresh SMS round only when the trust
- * token itself has expired, which the caller surfaces as `awaiting_code`
- * instead of a dead end.
+ * (the common case). When the trust token itself has expired, the condition is
+ * surfaced without sending SMS; only an explicit login/re-login action may do that.
  */
 async function silentPasswordRelogin(row: AccountRow): Promise<SilentOutcome> {
   if (!row.login_password_enc) return { outcome: 'no_password' };
@@ -517,23 +610,20 @@ async function silentPasswordRelogin(row: AccountRow): Promise<SilentOutcome> {
     return { outcome: 'active' };
   }
 
-  pendingLogins.set(row.id, { pending: result.pending, password });
-  const { phone } = await sendSms(result.pending);
-  setStatus(row.id, 'awaiting_code', `Apple 信任令牌已失效，需要重新验证：已发送短信验证码到 ${phone}`);
-  return { outcome: 'awaiting_code', phone };
+  if (loginChallengeAction('silent_recovery') === 'require_explicit_login') {
+    setStatus(row.id, 'session_expired', 'iCloud 会话需要短信验证，请在账户页显式点击“重新登录”');
+    return { outcome: 'verification_required' };
+  }
+  // Kept exhaustive so adding a new policy cannot silently introduce SMS.
+  throw new Error('静默恢复不允许发送短信');
 }
 
 async function performSessionRecovery(accountId: string): Promise<SessionRecoveryOutcome> {
   const row = getRow(accountId);
-  if (!row) throw Object.assign(new Error('Account not found'), { status: 404 });
+  if (!row) throw Object.assign(new Error('账户不存在'), { status: 404 });
   if (isProfileBusy(accountId)) return { outcome: 'busy' };
 
-  const refreshed = await refreshSession(
-    accountId,
-    row.client_id,
-    row.webservice_url,
-    storedCookies(row),
-  );
+  const refreshed = await refreshSession(accountId, row.client_id, row.webservice_url, storedCookies(row));
   if (refreshed) {
     persistSession(accountId, refreshed);
     return { outcome: 'cookie' };
@@ -561,29 +651,39 @@ function recoverSessionOnce(accountId: string): Promise<SessionRecoveryOutcome> 
  * On-demand session recovery: first the cheap cookie-roll fast path
  * (relaunch the persistent profile headlessly, seeded with the last captured
  * cookies), then — only if that fails — a silent password+trust-token SRP
- * relogin. Only when the trust token itself is gone does this need the user
- * to type a fresh SMS code.
+ * relogin. If the trust token is gone, the user is directed to explicitly
+ * start re-login; this recovery endpoint never sends SMS itself.
  */
 export async function recoverSession(accountId: string): Promise<RecoverResult> {
   const row = getRow(accountId);
-  if (!row) throw Object.assign(new Error('Account not found'), { status: 404 });
+  if (!row) throw Object.assign(new Error('账户不存在'), { status: 404 });
   const publicNow = () => toPublic(getRow(accountId)!);
 
   const recovered = await recoverSessionOnce(accountId);
   if (recovered.outcome === 'busy') {
-    return { ok: false, outcome: 'busy', message: '该账户已有登录会话进行中，请稍后再试', account: publicNow() };
+    return {
+      ok: false,
+      outcome: 'busy',
+      message: '该账户已有登录会话进行中，请稍后再试',
+      account: publicNow(),
+    };
   }
   if (recovered.outcome === 'cookie') {
     return { ok: true, outcome: 'cookie', message: '会话已恢复（Cookie 仍有效）', account: publicNow() };
   }
   if (recovered.outcome === 'password') {
-    return { ok: true, outcome: 'password', message: '会话已恢复（密码静默重登，无需操作）', account: publicNow() };
+    return {
+      ok: true,
+      outcome: 'password',
+      message: '会话已恢复（密码静默重登，无需操作）',
+      account: publicNow(),
+    };
   }
-  if (recovered.outcome === 'awaiting_code') {
+  if (recovered.outcome === 'verification_required') {
     return {
       ok: false,
-      outcome: 'awaiting_code',
-      message: `Apple 信任令牌已过期：已发送短信验证码到 ${recovered.phone}，请在下方输入`,
+      outcome: 'verification_required',
+      message: 'Apple 信任令牌已过期；为避免后台意外发送短信，请在账户页点击“重新登录”',
       account: publicNow(),
     };
   }
@@ -615,13 +715,16 @@ export function deleteAccount(id: string): boolean {
   const row = getRow(id);
   if (!row) return false;
   getDb().prepare('DELETE FROM accounts WHERE id = ?').run(id);
-  pendingLogins.delete(id);
+  clearPending(id);
   // Best-effort removal of the persistent browser profile.
+  const profilesRoot = resolve(config.playwright.profilesDir);
+  const profilePath = resolve(row.profile_dir ?? join(profilesRoot, id));
   try {
-    rmSync(row.profile_dir ?? join(config.playwright.profilesDir, id), {
-      recursive: true,
-      force: true,
-    });
+    if (profilePath !== profilesRoot && profilePath.startsWith(`${profilesRoot}${sep}`)) {
+      rmSync(profilePath, { recursive: true, force: true });
+    } else {
+      logger.warn(`refused to remove unsafe profile path for account ${id}`);
+    }
   } catch (err) {
     logger.warn(`failed to remove profile for account ${id}: ${String(err)}`);
   }
@@ -648,12 +751,9 @@ function loadSession(row: AccountRow): HmeSession {
  * whenever Apple still trusts this client. Only marks the account for manual
  * attention when both silent paths fail.
  */
-export async function withHmeClient<T>(
-  accountId: string,
-  fn: (hme: HmeClient) => Promise<T>,
-): Promise<T> {
+export async function withHmeClient<T>(accountId: string, fn: (hme: HmeClient) => Promise<T>): Promise<T> {
   const row = getRow(accountId);
-  if (!row) throw Object.assign(new Error('Account not found'), { status: 404 });
+  if (!row) throw Object.assign(new Error('账户不存在'), { status: 404 });
 
   try {
     return await fn(new HmeClient(loadSession(row)));
@@ -669,8 +769,16 @@ export async function withHmeClient<T>(
     if (recovered.outcome === 'no_password') {
       setStatus(accountId, 'session_expired', 'iCloud 会话已过期，请重新登录');
     }
-    // bad_password / awaiting_code already set their own status inside silentPasswordRelogin.
-    throw err;
+    // bad_password / verification_required already set their own actionable status.
+    const message =
+      recovered.outcome === 'verification_required'
+        ? 'iCloud 会话需要短信验证，请在账户页显式点击“重新登录”'
+        : recovered.outcome === 'bad_password'
+          ? 'Apple ID 密码已变更，请在账户页重新登录'
+          : recovered.outcome === 'busy'
+            ? '该账户已有登录或刷新任务进行中，请稍后重试'
+            : 'iCloud 会话已过期，请在账户页重新登录';
+    throw Object.assign(new Error(message), { status: 409 });
   }
 }
 
@@ -682,13 +790,13 @@ export async function withHmeClient<T>(
  */
 export async function keepAlive(
   accountId: string,
-): Promise<'refreshed' | 'busy' | 'awaiting_code' | 'expired' | 'not_found'> {
+): Promise<'refreshed' | 'busy' | 'verification_required' | 'expired' | 'not_found'> {
   const row = getRow(accountId);
   if (!row) return 'not_found';
   const recovered = await recoverSessionOnce(accountId);
   if (recovered.outcome === 'busy') return 'busy';
   if (recovered.outcome === 'cookie' || recovered.outcome === 'password') return 'refreshed';
-  if (recovered.outcome === 'awaiting_code') return 'awaiting_code';
+  if (recovered.outcome === 'verification_required') return 'verification_required';
 
   setStatus(accountId, 'session_expired', 'iCloud 会话已过期，请重新登录');
   return 'expired';

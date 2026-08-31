@@ -71,9 +71,7 @@ export interface ImapConfigInput {
 
 /** Whether an account has an IMAP mailbox configured. */
 export function hasConfigForAccount(accountId: string): boolean {
-  return !!getDb()
-    .prepare('SELECT 1 FROM imap_configs WHERE account_id = ? LIMIT 1')
-    .get(accountId);
+  return !!getDb().prepare('SELECT 1 FROM imap_configs WHERE account_id = ? LIMIT 1').get(accountId);
 }
 
 /** Create or update the (single) IMAP config linked to an account. */
@@ -103,7 +101,9 @@ export function upsertForAccount(accountId: string, input: ImapConfigInput): Ima
 /** Remove all IMAP configs linked to an account. */
 export function deleteConfigsForAccount(accountId: string): void {
   const db = getDb();
-  const rows = db.prepare('SELECT * FROM imap_configs WHERE account_id = ?').all(accountId) as ImapConfigRow[];
+  const rows = db
+    .prepare('SELECT * FROM imap_configs WHERE account_id = ?')
+    .all(accountId) as ImapConfigRow[];
   for (const row of rows) invalidateConnection(connectionConfig(row));
   db.prepare('DELETE FROM imap_configs WHERE account_id = ?').run(accountId);
 }
@@ -124,9 +124,7 @@ export function listConfigs(): ImapConfigPublic[] {
 }
 
 function getRow(id: string): ImapConfigRow | undefined {
-  return getDb().prepare('SELECT * FROM imap_configs WHERE id = ?').get(id) as
-    | ImapConfigRow
-    | undefined;
+  return getDb().prepare('SELECT * FROM imap_configs WHERE id = ?').get(id) as ImapConfigRow | undefined;
 }
 
 export function createConfig(input: ImapConfigInput): ImapConfigPublic {
@@ -174,7 +172,7 @@ function isAuthError(err: unknown): boolean {
 /** Verify credentials by connecting to the server. */
 export async function testConfig(id: string): Promise<{ ok: true }> {
   const row = getRow(id);
-  if (!row) throw Object.assign(new Error('IMAP config not found'), { status: 404 });
+  if (!row) throw Object.assign(new Error('IMAP 配置不存在'), { status: 404 });
   try {
     await testConnection(connectionConfig(row));
     setAuthFailed(id, false);
@@ -188,7 +186,7 @@ export async function testConfig(id: string): Promise<{ ok: true }> {
 /** Fetch recent messages (with detected verification codes) for a config. */
 export async function fetchCodes(id: string, options: FetchOptions = {}): Promise<FetchedMessage[]> {
   const row = getRow(id);
-  if (!row) throw Object.assign(new Error('IMAP config not found'), { status: 404 });
+  if (!row) throw Object.assign(new Error('IMAP 配置不存在'), { status: 404 });
   try {
     const messages = await fetchRecentMessages(connectionConfig(row), options);
     if (row.auth_failed) setAuthFailed(id, false); // recovered

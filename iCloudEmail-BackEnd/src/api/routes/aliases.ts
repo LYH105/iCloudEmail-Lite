@@ -47,7 +47,7 @@ export async function aliasRoutes(app: FastifyInstance): Promise<void> {
   app.get<P>('/', read, async (req) => ({ aliases: aliases.listLocal(req.params.accountId) }));
 
   // Live sync from Apple + refresh cache.
-  app.post<P>('/sync', read, async (req) => aliases.sync(req.params.accountId));
+  app.post<P>('/sync', write, async (req) => aliases.sync(req.params.accountId));
 
   // Set the account-wide forwarding destination (applies to all aliases).
   app.post<P>('/forward-to', write, async (req) => {

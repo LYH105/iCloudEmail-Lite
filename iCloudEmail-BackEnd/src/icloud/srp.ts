@@ -82,12 +82,7 @@ function randomScalar(): bigint {
 }
 
 /** Apple s2k / s2k_fo password derivation → 32-byte key. */
-export function derivePassword(
-  password: string,
-  salt: Buffer,
-  iterations: number,
-  protocol: string,
-): Buffer {
+export function derivePassword(password: string, salt: Buffer, iterations: number, protocol: string): Buffer {
   let pw: Buffer = createHash('sha256').update(Buffer.from(password, 'utf8')).digest();
   if (protocol === 's2k_fo') pw = Buffer.from(pw.toString('hex'), 'ascii');
   return pbkdf2Sync(pw, salt, iterations, 32, 'sha256');

@@ -10,6 +10,7 @@ test('email viewer blocks remote resources by default', () => {
 
 test('email viewer allows remote images only after opt-in', () => {
   const policy = emailContentSecurityPolicy(true);
-  assert.match(policy, /img-src data: blob: https: http:/);
+  assert.match(policy, /img-src data: blob: https:/);
+  assert.doesNotMatch(policy, /\bhttp:/);
   assert.match(policy, /default-src 'none'/);
 });

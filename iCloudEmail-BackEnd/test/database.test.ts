@@ -12,9 +12,9 @@ process.env.DATABASE_PATH = join(dir, 'test.sqlite');
 const { closeDb, getDb } = await import('../src/db/index.js');
 const { createConfig, pickConfigForAccount } = await import('../src/services/imapService.js');
 
-test('fresh database migrates to schema v2 with safe defaults and indexes', () => {
+test('fresh database migrates to schema v4 with safe defaults and indexes', () => {
   const db = getDb();
-  assert.equal(db.pragma('user_version', { simple: true }), 2);
+  assert.equal(db.pragma('user_version', { simple: true }), 4);
 
   const columns = db.prepare('PRAGMA table_info(accounts)').all() as {
     name: string;
@@ -24,10 +24,16 @@ test('fresh database migrates to schema v2 with safe defaults and indexes', () =
   assert.ok(columns.some((column) => column.name === 'auto_create_failures'));
   assert.ok(columns.some((column) => column.name === 'auto_create_next_attempt_at'));
 
+  const aliasColumns = db.prepare('PRAGMA table_info(aliases)').all() as {
+    name: string;
+    dflt_value: string | null;
+  }[];
+  assert.equal(aliasColumns.find((column) => column.name === 'remote_present')?.dflt_value, '1');
+
   const indexes = new Set(
-    (
-      db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as { name: string }[]
-    ).map((row) => row.name),
+    (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as { name: string }[]).map(
+      (row) => row.name,
+    ),
   );
   for (const name of [
     'idx_aliases_account_created',
@@ -35,6 +41,7 @@ test('fresh database migrates to schema v2 with safe defaults and indexes', () =
     'idx_imap_configs_account_created',
     'idx_auto_create_logs_account_created',
     'idx_accounts_background_jobs',
+    'idx_aliases_account_present_created',
   ]) {
     assert.ok(indexes.has(name), `missing index ${name}`);
   }

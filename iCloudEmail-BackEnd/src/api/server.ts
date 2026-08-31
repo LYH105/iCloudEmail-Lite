@@ -11,33 +11,60 @@ import { apiKeyRoutes } from './routes/apikeys.js';
 import { autoCreateLogRoutes } from './routes/autoCreateLogs.js';
 import { imapRoutes } from './routes/imap.js';
 import { markRuleRoutes } from './routes/markRules.js';
+import { overviewRoutes } from './routes/overview.js';
+
+// Keep this policy aligned with iCloudEmail-FrontEnd/index.html. It deliberately
+// permits local Vite/WebSocket connections and the opt-in release check while
+// still allowing the sandboxed srcDoc email viewer to be framed by the app.
+export const STATIC_UI_CSP =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:* " +
+  'http://localhost:* ws://127.0.0.1:* ws://localhost:* https://api.github.com; ' +
+  "frame-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'";
 
 export function buildServer(): FastifyInstance {
+  const webEnabled = Boolean(config.webDist && existsSync(config.webDist));
   const app = Fastify({
-    logger: config.isProduction
-      ? true
-      : { transport: { target: 'pino-pretty', options: { colorize: true } } },
+    logger:
+      config.nodeEnv === 'test'
+        ? false
+        : config.isProduction
+          ? true
+          : { transport: { target: 'pino-pretty', options: { colorize: true } } },
     bodyLimit: 1_048_576,
+  });
+
+  app.addHook('onSend', async (req, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('Referrer-Policy', 'no-referrer');
+    reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+
+    const path = req.url.split('?', 1)[0] ?? req.url;
+    const isApi = path === '/api' || path.startsWith('/api/');
+    const isHealth = path === '/health';
+    if (isApi || isHealth) {
+      reply.header('Cache-Control', 'no-store');
+    } else if (webEnabled) {
+      // Only the backend-served production UI gets this header. Vite remains
+      // responsible for its own development responses and HMR connection.
+      reply.header('Content-Security-Policy', STATIC_UI_CSP);
+    }
   });
 
   app.setErrorHandler(errorHandler);
 
   // Tolerate empty-body POSTs that still send `Content-Type: application/json`
   // (e.g. sync/generate/deactivate) instead of rejecting them.
-  app.addContentTypeParser(
-    'application/json',
-    { parseAs: 'string' },
-    (_req, body, done) => {
-      const raw = (body as string).trim();
-      if (!raw) return done(null, {});
-      try {
-        done(null, JSON.parse(raw));
-      } catch (err) {
-        (err as { statusCode?: number }).statusCode = 400;
-        done(err as Error, undefined);
-      }
-    },
-  );
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    const raw = (body as string).trim();
+    if (!raw) return done(null, {});
+    try {
+      done(null, JSON.parse(raw));
+    } catch (err) {
+      (err as { statusCode?: number }).statusCode = 400;
+      done(err as Error, undefined);
+    }
+  });
 
   app.register(cors, {
     origin: config.corsOrigins.length ? config.corsOrigins : true,
@@ -57,21 +84,25 @@ export function buildServer(): FastifyInstance {
   app.register(imapRoutes, { prefix: '/api/imap' });
   app.register(autoCreateLogRoutes, { prefix: '/api/auto-create-logs' });
   app.register(markRuleRoutes, { prefix: '/api/mark-rules' });
+  app.register(overviewRoutes, { prefix: '/api/overview' });
 
   // Serve the built web UI (React) at / so the whole app runs same-origin.
-  const webEnabled = Boolean(config.webDist && existsSync(config.webDist));
-
   if (webEnabled) {
     app.register(fastifyStatic, { root: config.webDist!, prefix: '/' });
-
-    // SPA fallback: any non-API GET falls through to the React index.
-    app.setNotFoundHandler((req, reply) => {
-      if (req.method === 'GET' && !req.url.startsWith('/api') && !req.url.startsWith('/health')) {
-        return reply.sendFile('index.html', config.webDist!);
-      }
-      reply.code(404).send({ error: 'Not found' });
-    });
   }
+
+  // SPA fallback when the web build is mounted; otherwise every unknown route
+  // still receives the same structured API error envelope.
+  app.setNotFoundHandler((req, reply) => {
+    if (webEnabled && req.method === 'GET' && !req.url.startsWith('/api') && !req.url.startsWith('/health')) {
+      return reply.sendFile('index.html', config.webDist!);
+    }
+    reply.code(404).send({
+      error: '资源不存在',
+      code: 'NOT_FOUND',
+      requestId: req.id,
+    });
+  });
 
   return app;
 }

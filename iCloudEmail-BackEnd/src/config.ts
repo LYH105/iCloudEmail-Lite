@@ -27,6 +27,13 @@ function int(name: string, fallback: number): number {
 
 const nodeEnv = str('NODE_ENV', 'development');
 const isProduction = nodeEnv === 'production';
+const host = str('HOST', '127.0.0.1');
+const authDisabled = process.env.DISABLE_AUTH === 'true';
+const loopbackHosts = new Set(['127.0.0.1', 'localhost', '::1']);
+
+if (authDisabled && !loopbackHosts.has(host)) {
+  throw new Error('DISABLE_AUTH=true is only allowed with a loopback HOST');
+}
 
 // In development we fall back to a fixed dev key so the app boots without setup.
 // In production the operator MUST supply their own key.
@@ -39,7 +46,7 @@ export const config = {
   nodeEnv,
   isProduction,
   port: int('PORT', 8787),
-  host: str('HOST', '127.0.0.1'),
+  host,
   databasePath: resolve(process.cwd(), str('DATABASE_PATH', './data/icloud-hme.sqlite')),
   secretMasterKey: masterKey && masterKey.length >= 16 ? masterKey : 'dev-insecure-master-key-change-me',
   corsOrigins: str('CORS_ORIGINS', 'http://localhost:5173')
@@ -50,7 +57,11 @@ export const config = {
   // directory so the whole app runs same-origin on a single port.
   webDist: process.env.WEB_DIST ? resolve(process.cwd(), process.env.WEB_DIST) : undefined,
   // Local-only mode: skip API-key auth entirely (the desktop app sets this).
-  authDisabled: process.env.DISABLE_AUTH === 'true',
+  authDisabled,
+  // Electron provides a fresh per-launch value and installs it as an HttpOnly,
+  // SameSite cookie. This keeps desktop mode keyless for the user without
+  // granting every process on the machine unauthenticated API access.
+  desktopInstanceId: process.env.DESKTOP_INSTANCE_ID || undefined,
   // How often (minutes) the session keeper re-validates each account's
   // browser profile to keep iCloud cookies alive. 0 disables it.
   sessionRefreshMinutes: int('SESSION_REFRESH_MINUTES', 180),

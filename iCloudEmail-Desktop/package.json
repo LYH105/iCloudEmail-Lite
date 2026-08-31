@@ -1,28 +1,41 @@
 {
   "name": "@icloud-hme/desktop",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "description": "Local multi-account manager for iCloud Hide My Email",
   "author": "LYH105",
   "main": "main.cjs",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "start": "electron .",
     "build:deps": "npm run build --workspace @icloud-hme/server && npm run build --workspace @icloud-hme/web",
     "app": "npm run build:deps && electron .",
     "prepare:runtime": "node scripts/prepare-runtime.cjs",
-    "package:win": "npm run build:deps && npm run prepare:runtime && electron-builder --dir --win --x64",
-    "package:mac": "npm run build:deps && npm run prepare:runtime && electron-builder --dir --mac",
-    "dist:win": "npm run build:deps && npm run prepare:runtime && electron-builder --win nsis --x64",
-    "dist:mac": "npm run build:deps && npm run prepare:runtime && electron-builder --mac dmg zip"
+    "verify:runtime": "node scripts/verify-runtime.cjs",
+    "package:win": "npm run build:deps && npm run prepare:runtime && npm run verify:runtime && electron-builder --dir --win --x64",
+    "package:mac": "npm run build:deps && npm run prepare:runtime && npm run verify:runtime && electron-builder --dir --mac",
+    "dist:win": "npm run build:deps && npm run prepare:runtime && npm run verify:runtime && electron-builder --win nsis --x64",
+    "dist:mac": "npm run build:deps && npm run prepare:runtime && npm run verify:runtime && electron-builder --mac dmg zip"
   },
   "devDependencies": {
-    "electron": "33.4.11",
+    "electron": "44.0.0",
     "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "com.icloud-hme.desktop",
     "productName": "iCloud Email Manager",
     "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": false
+    },
     "npmRebuild": false,
     "directories": {
       "output": "../release"
@@ -66,6 +79,7 @@
     "mac": {
       "icon": "build-icon.icns",
       "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
       "target": [
         "dmg",
         "zip"

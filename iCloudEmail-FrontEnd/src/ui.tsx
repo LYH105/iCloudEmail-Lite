@@ -3,6 +3,8 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
+  useRef,
   useState,
   type ButtonHTMLAttributes,
   type ReactNode,
@@ -37,7 +39,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="toast-wrap">
+      <div className="toast-wrap" role="status" aria-live="polite" aria-atomic="false">
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.kind === 'ok' ? 'toast-ok' : 'toast-error'}`}>
             {t.message}
@@ -53,17 +55,46 @@ export function Sheet({
   title,
   children,
   footer,
+  onClose,
 }: {
   title: string;
   children: ReactNode;
   footer?: ReactNode;
+  onClose?: () => void;
 }) {
-  // Closes only via an explicit button in `footer` — clicking the backdrop
-  // no longer dismisses it, so an accidental misclick can't drop form input.
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    const focusable = dialog?.querySelector<HTMLElement>(
+      'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), a[href]',
+    );
+    (focusable ?? dialog)?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && onClose) onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [onClose]);
+
   return (
     <div className="sheet-backdrop">
-      <div className="sheet">
-        <h3 className="text-center text-[17px] font-semibold mb-4">{title}</h3>
+      <div
+        ref={dialogRef}
+        className="sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
+        <h3 id={titleId} className="text-center text-[17px] font-semibold mb-4">
+          {title}
+        </h3>
         {children}
         {footer && <div className="mt-5 flex gap-2">{footer}</div>}
       </div>
@@ -81,7 +112,7 @@ export function Button({
 }: { variant?: Variant; size?: 'md' | 'sm' } & ButtonHTMLAttributes<HTMLButtonElement>) {
   const v = `btn-${variant}`;
   const s = size === 'sm' ? 'btn-sm' : '';
-  return <button className={`btn ${v} ${s} ${className}`} {...props} />;
+  return <button type="button" className={`btn ${v} ${s} ${className}`} {...props} />;
 }
 
 /* ---------------- Segmented control ---------------- */
@@ -95,9 +126,15 @@ export function Segmented<T extends string>({
   onChange: (v: T) => void;
 }) {
   return (
-    <div className="segmented">
+    <div className="segmented" role="group" aria-label="筛选范围">
       {options.map((o) => (
-        <button key={o.value} data-active={value === o.value} onClick={() => onChange(o.value)}>
+        <button
+          type="button"
+          key={o.value}
+          data-active={value === o.value}
+          aria-pressed={value === o.value}
+          onClick={() => onChange(o.value)}
+        >
           {o.label}
         </button>
       ))}
@@ -114,29 +151,32 @@ export function Sidebar<T extends string>({
   footer,
 }: {
   brand: ReactNode;
-  options: { value: T; label: string; icon: string }[];
+  options: { value: T; label: string; shortLabel?: string; icon: ReactNode }[];
   value: T;
   onChange: (v: T) => void;
   footer?: ReactNode;
 }) {
   return (
-    <div className="sidebar">
+    <aside className="sidebar">
       <div className="sidebar-brand">{brand}</div>
-      <nav className="sidebar-nav">
+      <nav className="sidebar-nav" aria-label="主导航">
         {options.map((o) => (
           <button
+            type="button"
             key={o.value}
             className="sidebar-nav-item"
             data-active={value === o.value}
+            aria-current={value === o.value ? 'page' : undefined}
             onClick={() => onChange(o.value)}
           >
             <span className="sidebar-nav-icon">{o.icon}</span>
-            {o.label}
+            <span className="sidebar-nav-label">{o.label}</span>
+            <span className="sidebar-nav-label-short">{o.shortLabel ?? o.label}</span>
           </button>
         ))}
       </nav>
       {footer && <div className="sidebar-footer">{footer}</div>}
-    </div>
+    </aside>
   );
 }
 
@@ -166,17 +206,21 @@ export function Switch({
   checked,
   onChange,
   size = 'md',
+  label = '切换选项',
 }: {
   checked: boolean;
   onChange: () => void;
   size?: 'md' | 'sm';
+  label?: string;
 }) {
   return (
     <button
       className={`switch ${size === 'sm' ? 'switch-sm' : ''}`}
       data-on={checked}
+      type="button"
       onClick={onChange}
       aria-pressed={checked}
+      aria-label={label}
     />
   );
 }
@@ -220,25 +264,28 @@ interface ViewableMessage {
 }
 
 function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 export function EmailViewer({ message, onClose }: { message: ViewableMessage; onClose: () => void }) {
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
   const messageKey = `${message.date}\n${message.from}\n${message.subject}`;
   const [remoteContentFor, setRemoteContentFor] = useState<string | null>(null);
   const allowRemoteContent = remoteContentFor === messageKey;
   // Close only via the button or Esc — never on an outside click, so clicking a
   // link / selecting text inside the email can't accidentally dismiss it.
   useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      previouslyFocused?.focus();
+    };
   }, [onClose]);
 
   // Render the original email in a sandboxed iframe (no scripts). A restrictive
@@ -261,17 +308,25 @@ export function EmailViewer({ message, onClose }: { message: ViewableMessage; on
 
   return (
     <div className="sheet-backdrop">
-      <div className="sheet" style={{ maxWidth: 780, padding: 16 }}>
+      <div
+        ref={dialogRef}
+        className="sheet"
+        style={{ maxWidth: 780, padding: 16 }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="min-w-0">
-            <div className="font-semibold truncate">{message.subject || '(无主题)'}</div>
+            <div id={titleId} className="font-semibold truncate">
+              {message.subject || '(无主题)'}
+            </div>
             <div className="muted text-[12px] truncate">
               {message.from}
               {message.to ? ` → ${message.to}` : ''}
             </div>
-            <div className="muted text-[12px] mt-0.5">
-              收件时间：{formatDate(message.date)}
-            </div>
+            <div className="muted text-[12px] mt-0.5">收件时间：{formatDate(message.date)}</div>
           </div>
           <div className="flex items-center gap-2">
             {message.html && !allowRemoteContent && (
@@ -302,7 +357,13 @@ export function formatDate(ts: number | string | null): string {
   if (!ts) return '—';
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString();
+  return d.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 /**
@@ -313,7 +374,7 @@ export function formatDate(ts: number | string | null): string {
 export function formatRelative(ts: number | string): string {
   const at = typeof ts === 'number' ? ts : new Date(ts).getTime();
   if (!Number.isFinite(at)) return '—';
-  const diff = Date.now() - at;
+  const diff = Math.max(0, Date.now() - at);
   if (diff < 60_000) return '刚刚';
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 60) return `${minutes} 分钟前`;

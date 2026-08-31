@@ -38,9 +38,7 @@ function toPublic(row: MarkRuleRow): MarkRule {
 }
 
 export function listRules(): MarkRule[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM mark_rules ORDER BY created_at')
-    .all() as MarkRuleRow[];
+  const rows = getDb().prepare('SELECT * FROM mark_rules ORDER BY created_at').all() as MarkRuleRow[];
   return rows.map(toPublic);
 }
 
@@ -175,10 +173,12 @@ export interface OrphanMark {
 export function listOrphanMarks(): OrphanMark[] {
   const rows = getDb()
     .prepare(
-      `SELECT mark, COUNT(*) AS aliases, MAX(hit_at) AS last_hit_at
-         FROM alias_mark_hits
-        WHERE mark NOT IN (SELECT mark FROM mark_rules)
-        GROUP BY mark
+      `SELECT h.mark AS mark, COUNT(*) AS aliases, MAX(h.hit_at) AS last_hit_at
+         FROM alias_mark_hits h
+         JOIN aliases a ON a.id = h.alias_id
+        WHERE a.remote_present = 1
+          AND h.mark NOT IN (SELECT mark FROM mark_rules)
+        GROUP BY h.mark
         ORDER BY aliases DESC`,
     )
     .all() as { mark: string; aliases: number; last_hit_at: number }[];
@@ -204,7 +204,9 @@ export function exportRules(): MarkRuleExport[] {
   }));
 }
 
-function ruleKey(r: Pick<MarkRuleExport, 'mark' | 'fromContains' | 'subjectContains' | 'bodyContains'>): string {
+function ruleKey(
+  r: Pick<MarkRuleExport, 'mark' | 'fromContains' | 'subjectContains' | 'bodyContains'>,
+): string {
   return [r.mark, r.fromContains ?? '', r.subjectContains ?? '', r.bodyContains ?? ''].join('\0');
 }
 
@@ -249,9 +251,7 @@ export function importRules(input: MarkRuleImportItem[]): ImportResult {
 }
 
 function getRuleRow(id: string): MarkRuleRow | undefined {
-  return getDb().prepare('SELECT * FROM mark_rules WHERE id = ?').get(id) as
-    | MarkRuleRow
-    | undefined;
+  return getDb().prepare('SELECT * FROM mark_rules WHERE id = ?').get(id) as MarkRuleRow | undefined;
 }
 
 /** "a|b|c" → any keyword contained (case-insensitive); empty field = pass. */
@@ -294,7 +294,7 @@ export function getHitsForAccount(accountId: string): Map<string, AliasMarkHit[]
       `SELECT h.alias_id, h.mark, h.hit_at, h.source
          FROM alias_mark_hits h
          JOIN aliases a ON a.id = h.alias_id
-        WHERE a.account_id = ?`,
+        WHERE a.account_id = ? AND a.remote_present = 1`,
     )
     .all(accountId) as HitRow[];
   const map = new Map<string, AliasMarkHit[]>();
@@ -316,7 +316,14 @@ export function getHitsForAlias(aliasId: string): AliasMarkHit[] {
 
 /** All achieved marks across every account, grouped by alias id. */
 export function getAllHits(): Map<string, AliasMarkHit[]> {
-  const rows = getDb().prepare('SELECT alias_id, mark, hit_at, source FROM alias_mark_hits').all() as HitRow[];
+  const rows = getDb()
+    .prepare(
+      `SELECT h.alias_id, h.mark, h.hit_at, h.source
+         FROM alias_mark_hits h
+         JOIN aliases a ON a.id = h.alias_id
+        WHERE a.remote_present = 1`,
+    )
+    .all() as HitRow[];
   const map = new Map<string, AliasMarkHit[]>();
   for (const r of rows) {
     const arr = map.get(r.alias_id) ?? [];
@@ -342,7 +349,7 @@ export interface ScanResult {
 export async function scanAccount(accountId: string, sinceMinutes = 10_080): Promise<ScanResult> {
   const db = getDb();
   const aliases = db
-    .prepare('SELECT id, hme FROM aliases WHERE account_id = ?')
+    .prepare('SELECT id, hme FROM aliases WHERE account_id = ? AND remote_present = 1')
     .all(accountId) as { id: string; hme: string }[];
   if (aliases.length === 0) return { scanned: 0, updated: [] };
 
@@ -353,10 +360,9 @@ export async function scanAccount(accountId: string, sinceMinutes = 10_080): Pro
 
   const configId = pickConfigForAccount(accountId);
   if (!configId) {
-    throw Object.assign(
-      new Error('该账户尚未设置收件邮箱：请到「账户」页在「编辑」里填入 App 专用密码'),
-      { status: 409 },
-    );
+    throw Object.assign(new Error('该账户尚未设置收件邮箱：请到「账户」页在「编辑」里填入 App 专用密码'), {
+      status: 409,
+    });
   }
 
   const messages = await fetchCodes(configId, {

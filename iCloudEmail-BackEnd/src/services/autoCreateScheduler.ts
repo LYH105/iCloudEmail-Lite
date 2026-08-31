@@ -30,7 +30,8 @@ function enabledAccounts(): DueAccount[] {
   return getDb()
     .prepare(
       `SELECT a.id, a.label,
-              COALESCE((SELECT MAX(create_timestamp) FROM aliases WHERE account_id = a.id), 0) AS newest,
+              COALESCE((SELECT MAX(create_timestamp) FROM aliases
+                         WHERE account_id = a.id AND remote_present = 1), 0) AS newest,
               a.auto_create_failures AS failures,
               COALESCE(a.auto_create_next_attempt_at, 0) AS nextAttemptAt,
               COALESCE((SELECT SUM(created_count) FROM auto_create_logs
@@ -52,7 +53,13 @@ async function runForAccount(acc: DueAccount): Promise<void> {
       r.created.length > 0,
       r.created.length,
       r.errors.length,
-      r.errors.length ? r.errors.map((e) => e.message).slice(0, 3).join('; ').slice(0, 300) : null,
+      r.errors.length
+        ? r.errors
+            .map((e) => e.message)
+            .slice(0, 3)
+            .join('; ')
+            .slice(0, 300)
+        : null,
     );
     if (r.created.length > 0) {
       db.prepare(
@@ -87,7 +94,8 @@ function scheduleRetry(accountId: string, failures: number): void {
 export function nextRunAtForAccount(accountId: string): number | null {
   const row = getDb()
     .prepare(
-      `SELECT COALESCE((SELECT MAX(create_timestamp) FROM aliases WHERE account_id = a.id), 0) AS newest,
+      `SELECT COALESCE((SELECT MAX(create_timestamp) FROM aliases
+                         WHERE account_id = a.id AND remote_present = 1), 0) AS newest,
               COALESCE(a.auto_create_next_attempt_at, 0) AS nextAttemptAt,
               COALESCE((SELECT SUM(created_count) FROM auto_create_logs
                          WHERE account_id = a.id AND created_at >= ?), 0) AS createdLast24h,

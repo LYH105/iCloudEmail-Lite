@@ -40,9 +40,7 @@ export async function imapRoutes(app: FastifyInstance): Promise<void> {
     deleted: imap.deleteConfig(req.params.id),
   }));
 
-  app.post<{ Params: { id: string } }>('/:id/test', read, async (req) =>
-    imap.testConfig(req.params.id),
-  );
+  app.post<{ Params: { id: string } }>('/:id/test', write, async (req) => imap.testConfig(req.params.id));
 
   // Fetch recent messages + detected codes for a stored config.
   app.get<{ Params: { id: string } }>('/:id/codes', read, async (req) => {

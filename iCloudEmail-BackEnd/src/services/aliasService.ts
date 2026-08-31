@@ -47,6 +47,7 @@ interface AliasRow {
   synced_at: number;
   used: number;
   used_at: number | null;
+  remote_present: number;
 }
 
 function toPublic(row: AliasRow, marks: AliasMarkHit[]): AliasPublic {
@@ -80,14 +81,15 @@ function upsert(accountId: string, email: HmeEmail): AliasPublic {
   const id = existing?.id ?? crypto.randomUUID();
   db.prepare(
     `INSERT INTO aliases (id, account_id, anonymous_id, hme, domain, forward_to_email, label, note,
-                          origin, is_active, recipient_mail_id, create_timestamp, synced_at)
+                          origin, is_active, recipient_mail_id, create_timestamp, synced_at, remote_present)
      VALUES (@id, @account_id, @anonymous_id, @hme, @domain, @forward_to_email, @label, @note,
-             @origin, @is_active, @recipient_mail_id, @create_timestamp, @synced_at)
+             @origin, @is_active, @recipient_mail_id, @create_timestamp, @synced_at, 1)
      ON CONFLICT(account_id, anonymous_id) DO UPDATE SET
        hme=excluded.hme, domain=excluded.domain, forward_to_email=excluded.forward_to_email,
        label=excluded.label, note=excluded.note, origin=excluded.origin,
        is_active=excluded.is_active, recipient_mail_id=excluded.recipient_mail_id,
-       create_timestamp=excluded.create_timestamp, synced_at=excluded.synced_at`,
+       create_timestamp=excluded.create_timestamp, synced_at=excluded.synced_at,
+       remote_present=1`,
   ).run({
     id,
     account_id: accountId,
@@ -111,7 +113,9 @@ function upsert(accountId: string, email: HmeEmail): AliasPublic {
 /** Local cached aliases (does not hit Apple). */
 export function listLocal(accountId: string): AliasPublic[] {
   const rows = getDb()
-    .prepare('SELECT * FROM aliases WHERE account_id = ? ORDER BY create_timestamp DESC')
+    .prepare(
+      'SELECT * FROM aliases WHERE account_id = ? AND remote_present = 1 ORDER BY create_timestamp DESC',
+    )
     .all(accountId) as AliasRow[];
   const hits = getHitsForAccount(accountId);
   return rows.map((r) => toPublic(r, hits.get(r.id) ?? []));
@@ -120,7 +124,7 @@ export function listLocal(accountId: string): AliasPublic[] {
 /** Local cached aliases across every account (does not hit Apple). */
 export function listAllLocal(): AliasPublic[] {
   const rows = getDb()
-    .prepare('SELECT * FROM aliases ORDER BY create_timestamp DESC')
+    .prepare('SELECT * FROM aliases WHERE remote_present = 1 ORDER BY create_timestamp DESC')
     .all() as AliasRow[];
   const hits = getAllHits();
   return rows.map((r) => toPublic(r, hits.get(r.id) ?? []));
@@ -132,31 +136,26 @@ export interface SyncResult {
   forwardToEmails: string[];
 }
 
+/** Apply one authoritative Apple snapshot without deleting local-only state. */
+function applyRemoteSnapshot(accountId: string, emails: HmeEmail[]): void {
+  const db = getDb();
+  const applySync = db.transaction((snapshot: HmeEmail[]) => {
+    // Hide first, then let each validated remote row revive/upsert itself.
+    // The preserved rows retain their ids, used flags and mark-hit FKs.
+    db.prepare('UPDATE aliases SET remote_present = 0, synced_at = ? WHERE account_id = ?').run(
+      Date.now(),
+      accountId,
+    );
+    for (const email of snapshot) upsert(accountId, email);
+  });
+  applySync(emails);
+}
+
 /** Pull the live list from Apple and refresh the local mirror. */
 export async function sync(accountId: string): Promise<SyncResult> {
   return withHmeClient(accountId, async (hme) => {
     const result = await hme.list();
-    const db = getDb();
-    const applySync = db.transaction((emails: HmeEmail[]) => {
-      const kept = new Set<string>();
-      for (const email of emails) {
-        upsert(accountId, email);
-        kept.add(email.anonymousId);
-      }
-      // Drop locally-cached aliases that no longer exist upstream.
-      const local = db
-        .prepare('SELECT anonymous_id FROM aliases WHERE account_id = ?')
-        .all(accountId) as { anonymous_id: string }[];
-      for (const { anonymous_id } of local) {
-        if (!kept.has(anonymous_id)) {
-          db.prepare('DELETE FROM aliases WHERE account_id = ? AND anonymous_id = ?').run(
-            accountId,
-            anonymous_id,
-          );
-        }
-      }
-    });
-    applySync(result.hmeEmails);
+    applyRemoteSnapshot(accountId, result.hmeEmails);
     return {
       aliases: listLocal(accountId),
       selectedForwardTo: result.selectedForwardTo,
@@ -201,18 +200,11 @@ export async function generate(accountId: string): Promise<{ hme: string }> {
  * aliases at once) and refresh the local cache. `forwardToEmail` must be one of
  * the account's registered forwarding addresses (see SyncResult.forwardToEmails).
  */
-export async function setForwardTo(
-  accountId: string,
-  forwardToEmail: string,
-): Promise<SyncResult> {
+export async function setForwardTo(accountId: string, forwardToEmail: string): Promise<SyncResult> {
   return withHmeClient(accountId, async (client) => {
     await client.updateForwardTo(forwardToEmail);
     const result = await client.list();
-    const db = getDb();
-    const tx = db.transaction((emails: HmeEmail[]) => {
-      for (const email of emails) upsert(accountId, email);
-    });
-    tx(result.hmeEmails);
+    applyRemoteSnapshot(accountId, result.hmeEmails);
     return {
       aliases: listLocal(accountId),
       selectedForwardTo: result.selectedForwardTo,
@@ -280,9 +272,7 @@ export async function createBatch(
   for (let i = 0; i < total; i++) {
     const itemLabel = total > 1 ? `${base} #${i + 1}` : base;
     try {
-      const email = await withHmeClient(accountId, (client) =>
-        client.createAndReserve(itemLabel, note),
-      );
+      const email = await withHmeClient(accountId, (client) => client.createAndReserve(itemLabel, note));
       created.push(upsert(accountId, stampNew(email)));
     } catch (err) {
       errors.push({ index: i, message: err instanceof Error ? err.message : String(err) });
@@ -295,7 +285,7 @@ export async function createBatch(
 function setActive(accountId: string, anonymousId: string, active: boolean): void {
   getDb()
     .prepare(
-      'UPDATE aliases SET is_active = ?, synced_at = ? WHERE account_id = ? AND anonymous_id = ?',
+      'UPDATE aliases SET is_active = ?, synced_at = ? WHERE account_id = ? AND anonymous_id = ? AND remote_present = 1',
     )
     .run(active ? 1 : 0, Date.now(), accountId, anonymousId);
 }
@@ -330,7 +320,7 @@ export async function remove(accountId: string, anonymousId: string): Promise<{ 
 export function setUsed(accountId: string, anonymousId: string, used: boolean): AliasPublic {
   const db = getDb();
   const row = db
-    .prepare('SELECT id FROM aliases WHERE account_id = ? AND anonymous_id = ?')
+    .prepare('SELECT id FROM aliases WHERE account_id = ? AND anonymous_id = ? AND remote_present = 1')
     .get(accountId, anonymousId) as { id: string } | undefined;
   if (!row) throw Object.assign(new Error('别名不存在'), { status: 404 });
   db.prepare('UPDATE aliases SET used = ?, used_at = ?, synced_at = ? WHERE id = ?').run(
@@ -344,7 +334,7 @@ export function setUsed(accountId: string, anonymousId: string, used: boolean): 
 
 function getLocal(accountId: string, anonymousId: string): AliasPublic {
   const row = getDb()
-    .prepare('SELECT * FROM aliases WHERE account_id = ? AND anonymous_id = ?')
+    .prepare('SELECT * FROM aliases WHERE account_id = ? AND anonymous_id = ? AND remote_present = 1')
     .get(accountId, anonymousId) as AliasRow | undefined;
   if (!row) throw new Error('Alias not found locally after operation');
   return toPublic(row, getHitsForAlias(row.id));
@@ -361,7 +351,7 @@ export async function fetchMail(
   options: { sinceMinutes?: number; limit?: number } = {},
 ): Promise<{ alias: string; messages: FetchedMessage[] }> {
   const row = getDb()
-    .prepare('SELECT id, hme FROM aliases WHERE account_id = ? AND anonymous_id = ?')
+    .prepare('SELECT id, hme FROM aliases WHERE account_id = ? AND anonymous_id = ? AND remote_present = 1')
     .get(accountId, anonymousId) as { id: string; hme: string } | undefined;
   if (!row) throw Object.assign(new Error('别名不存在'), { status: 404 });
 
@@ -409,7 +399,7 @@ export async function listMailLibrary(sinceMinutes = 1440): Promise<LibraryMessa
   const out: LibraryMessage[] = [];
   for (const accountId of accountIds) {
     const aliasRows = db
-      .prepare('SELECT hme FROM aliases WHERE account_id = ?')
+      .prepare('SELECT hme FROM aliases WHERE account_id = ? AND remote_present = 1')
       .all(accountId) as { hme: string }[];
     if (aliasRows.length === 0) continue;
     const configId = pickConfigForAccount(accountId);
@@ -430,9 +420,7 @@ export async function listMailLibrary(sinceMinutes = 1440): Promise<LibraryMessa
         }
       }
     } catch (err) {
-      logger.warn(
-        `[mail-library] account ${accountId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      logger.warn(`[mail-library] account ${accountId}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   return out.sort((a, b) => b.date.localeCompare(a.date));

@@ -1,5 +1,7 @@
 import { config } from '../config.js';
+import { z } from 'zod';
 import { originForWebservice, USER_AGENT } from './constants.js';
+import { fetchWithTimeout } from './http.js';
 import type { AppleResponse, HmeEmail, HmeListResult } from './types.js';
 
 /** Cookie-based iCloud session, as persisted per account. */
@@ -31,6 +33,37 @@ function extractMessage(json: AppleResponse | undefined): string | null {
   return json.errorMessage ?? json.reason ?? null;
 }
 
+const hmeEmailSchema = z.object({
+  origin: z.string(),
+  anonymousId: z.string().min(1),
+  domain: z.string(),
+  forwardToEmail: z.string(),
+  hme: z.string().min(3),
+  isActive: z.boolean(),
+  label: z.string(),
+  note: z.string(),
+  createTimestamp: z.number().finite(),
+  recipientMailId: z.string(),
+});
+
+const hmeListSchema = z.object({
+  // This field is intentionally required. Treating an absent field as an
+  // authoritative empty list would make sync delete the entire local mirror.
+  hmeEmails: z.array(hmeEmailSchema),
+  selectedForwardTo: z.string().default(''),
+  forwardToEmails: z.array(z.string()).default([]),
+});
+
+function invalidResponse(): HmeApiError {
+  return new HmeApiError('iCloud 返回的数据格式异常，未修改本地数据，请稍后重试', 502);
+}
+
+function parseWire<S extends z.ZodTypeAny>(schema: S, value: unknown): z.infer<S> {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) throw invalidResponse();
+  return parsed.data;
+}
+
 /**
  * Hide My Email client: talks directly to the account's discovered
  * premiummailsettings webservice using the stored session cookie. Paths,
@@ -54,8 +87,8 @@ export class HmeClient {
     return u.toString();
   }
 
-  private async request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
-    const res = await fetch(this.url(path), {
+  private async request(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
+    const res = await fetchWithTimeout(this.url(path), {
       method,
       headers: {
         Cookie: this.session.cookie,
@@ -69,50 +102,43 @@ export class HmeClient {
     });
 
     const text = await res.text();
-    let json: AppleResponse<T> | undefined;
+    let json: AppleResponse<unknown> | undefined;
     try {
-      json = text ? (JSON.parse(text) as AppleResponse<T>) : undefined;
+      json = text ? (JSON.parse(text) as AppleResponse<unknown>) : undefined;
     } catch {
       json = undefined;
     }
 
     if (!res.ok) {
-      throw new HmeApiError(
-        extractMessage(json) ?? `iCloud API 请求失败（HTTP ${res.status}）`,
-        res.status,
-      );
+      throw new HmeApiError(extractMessage(json) ?? `iCloud API 请求失败（HTTP ${res.status}）`, res.status);
     }
     if (json && json.success === false) {
       throw new HmeApiError(extractMessage(json) ?? 'iCloud API 调用失败', 400);
     }
-    return (json?.result ?? json) as T;
+    if (json && typeof json === 'object' && 'result' in json) return json.result;
+    return json;
   }
 
   /** `GET /v2/hme/list` → all aliases + forwarding config. */
   async list(): Promise<HmeListResult> {
-    const r = await this.request<Partial<HmeListResult>>('GET', '/v2/hme/list');
-    return {
-      hmeEmails: r.hmeEmails ?? [],
-      selectedForwardTo: r.selectedForwardTo ?? '',
-      forwardToEmails: r.forwardToEmails ?? [],
-    };
+    return parseWire(hmeListSchema, await this.request('GET', '/v2/hme/list')) as HmeListResult;
   }
 
   /** `POST /v1/hme/generate` → a fresh, not-yet-reserved address. */
   async generate(): Promise<string> {
-    const r = await this.request<{ hme?: string }>('POST', '/v1/hme/generate', {});
-    if (!r?.hme) throw new HmeApiError('generate 未返回地址', 502);
+    const r = parseWire(
+      z.object({ hme: z.string().min(3) }),
+      await this.request('POST', '/v1/hme/generate', {}),
+    );
     return r.hme;
   }
 
   /** `POST /v1/hme/reserve` → persists a generated address with label/note. */
   async reserve(hme: string, label: string, note = ''): Promise<HmeEmail> {
-    const r = await this.request<{ hme?: HmeEmail }>('POST', '/v1/hme/reserve', {
-      hme,
-      label,
-      note,
-    });
-    if (!r?.hme) throw new HmeApiError('reserve 未返回别名详情', 502);
+    const r = parseWire(
+      z.object({ hme: hmeEmailSchema }),
+      await this.request('POST', '/v1/hme/reserve', { hme, label, note }),
+    );
     return r.hme;
   }
 

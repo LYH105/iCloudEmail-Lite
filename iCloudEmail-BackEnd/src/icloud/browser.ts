@@ -64,28 +64,36 @@ async function validateInPage(page: Page, clientId: string): Promise<ValidateRes
   const setupBase = setupBaseForPage(page.url());
   if (!setupBase) return null;
   try {
-    return await page.evaluate(
+    return (await page.evaluate(
       async (args) => {
         const qs = new URLSearchParams({
           clientBuildNumber: args.clientBuildNumber,
           clientMasteringNumber: args.clientMasteringNumber,
           clientId: args.clientId,
         });
-        const res = await fetch(`${args.url}?${qs.toString()}`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'text/plain' },
-        });
-        if (!res.ok) return null;
-        return (await res.json()) as unknown;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), args.timeoutMs);
+        try {
+          const res = await fetch(`${args.url}?${qs.toString()}`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'text/plain' },
+            signal: controller.signal,
+          });
+          if (!res.ok) return null;
+          return (await res.json()) as unknown;
+        } finally {
+          clearTimeout(timer);
+        }
       },
       {
         url: validateUrlFor(setupBase),
         clientBuildNumber: config.icloud.clientBuildNumber,
         clientMasteringNumber: config.icloud.clientMasteringNumber,
         clientId,
+        timeoutMs: 15_000,
       },
-    ) as ValidateResponse | null;
+    )) as ValidateResponse | null;
   } catch {
     // Navigation destroyed the execution context, page closed, CORS hiccup…
     // — all just mean "not ready yet".
@@ -155,11 +163,7 @@ async function injectCookies(ctx: BrowserContext, cookies: StoredCookie[]): Prom
  * window is open; the profile stays locked (login/refresh blocked) until the
  * user closes the window, which releases the lock automatically.
  */
-export async function openPage(
-  accountId: string,
-  url: string,
-  cookies: StoredCookie[] = [],
-): Promise<void> {
+export async function openPage(accountId: string, url: string, cookies: StoredCookie[] = []): Promise<void> {
   if (busyProfiles.has(accountId)) {
     throw Object.assign(new Error('该账户的浏览器已在使用中（登录 / 刷新 / 已打开的页面），请先关闭'), {
       status: 409,
@@ -180,9 +184,7 @@ export async function openPage(
     // Slow loads are fine — from here the window belongs to the user.
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   } catch (err) {
-    logger.warn(
-      `openPage(${accountId}) navigation: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    logger.warn(`openPage(${accountId}) navigation: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -226,9 +228,7 @@ export async function refreshSession(
     }
     return null;
   } catch (err) {
-    logger.warn(
-      `refreshSession(${accountId}) failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    logger.warn(`refreshSession(${accountId}) failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   } finally {
     if (ctx) await ctx.close().catch(() => undefined);
