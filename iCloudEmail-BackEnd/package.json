@@ -12,7 +12,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test test/*.test.ts && tsx scripts/api-smoketest.ts"
+    "test": "tsx --test --test-concurrency=1 test/*.test.ts && tsx scripts/api-smoketest.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.1.0",

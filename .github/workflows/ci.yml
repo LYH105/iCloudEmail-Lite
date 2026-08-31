@@ -22,16 +22,16 @@ jobs:
         include:
           - label: macOS arm64
             os: macos-15
-            node: 22.12.0
+            node: 22
           - label: macOS arm64
             os: macos-15
             node: 24
           - label: macOS x64
             os: macos-15-intel
-            node: 22.12.0
+            node: 22
           - label: Windows x64
             os: windows-latest
-            node: 22.12.0
+            node: 22
           - label: Windows x64
             os: windows-latest
             node: 24
