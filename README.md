@@ -5,7 +5,7 @@
 **A local-first desktop manager for multiple Apple IDs, Hide My Email aliases, and verification mail.**
 
 [![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)](#platform-support)
-[![Node](https://img.shields.io/badge/Node.js-%E2%89%A5%2022.12-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Node](https://img.shields.io/badge/Node.js-%E2%89%A5%2024-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![Electron](https://img.shields.io/badge/Electron-44-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![CI](https://github.com/LYH105/iCloudEmail-Lite/actions/workflows/ci.yml/badge.svg)](https://github.com/LYH105/iCloudEmail-Lite/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/LYH105/iCloudEmail-Lite?label=Download&color=5b5bd6)](https://github.com/LYH105/iCloudEmail-Lite/releases/latest)
@@ -51,7 +51,7 @@ The app runs on your computer, listens only on loopback, and stores its database
 - A stale browser API key returns the user to the connection screen instead of leaving the app stuck on repeated 401 responses.
 - Mail cache is isolated per backend/API key, bounded to 7 days and eight windows, and cleared on sign-out or authentication failure.
 - Every Apple HTTP exchange, Playwright validation, IMAP connection, message, and aggregate mail pull has a bounded lifetime or memory budget.
-- CI tests Node.js 22/24 across macOS Apple Silicon, macOS Intel, and Windows x64. The lockfile includes native packages for all release targets.
+- CI tests Node.js 24 across macOS Apple Silicon, macOS Intel, and Windows x64. The lockfile includes native packages for all release targets.
 
 ## Platform support
 
@@ -74,7 +74,7 @@ For normal use, download the package for your system from [GitHub Releases](http
 
 Requirements:
 
-- Node.js **22.12 or newer** (Node.js 24 is supported)
+- Node.js **24 or newer**
 - npm 10 or newer
 - Google Chrome on macOS or Microsoft Edge on Windows for browser-assisted session refresh and “Open Apple page”
 
@@ -224,7 +224,7 @@ Apple occasionally returns incomplete snapshots. Missing aliases are hidden rath
 
 **`better-sqlite3` cannot load its native binding.**
 
-Use Node.js 22.12+ and run `npm install` on the current operating system. If the repository was copied with `node_modules`, remove those dependency directories and reinstall.
+Use Node.js 24+ and run `npm install` on the current operating system. If the repository was copied with `node_modules`, remove those dependency directories and reinstall.
 
 **macOS blocks an unsigned local build.**
 

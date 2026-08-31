@@ -5,7 +5,7 @@
 **本地优先的 macOS / Windows 桌面应用：集中管理 Apple ID、隐藏邮箱和验证码邮件。**
 
 [![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)](#平台支持)
-[![Node](https://img.shields.io/badge/Node.js-%E2%89%A5%2022.12-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Node](https://img.shields.io/badge/Node.js-%E2%89%A5%2024-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![Electron](https://img.shields.io/badge/Electron-44-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![CI](https://github.com/LYH105/iCloudEmail-Lite/actions/workflows/ci.yml/badge.svg)](https://github.com/LYH105/iCloudEmail-Lite/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/LYH105/iCloudEmail-Lite?label=下载&color=5b5bd6)](https://github.com/LYH105/iCloudEmail-Lite/releases/latest)
@@ -51,7 +51,7 @@
 - 浏览器 API Key 失效后会自动返回连接页，不再陷入重复 401 的不可用状态。
 - 邮件缓存按后端和 API Key 隔离，最多保留 7 天、8 个时间窗口；退出或鉴权失败时自动清理。
 - Apple HTTP、Playwright 校验、IMAP 连接、单封邮件和一次拉取都有超时或内存上限。
-- CI 在 macOS Apple Silicon、macOS Intel 和 Windows x64 上验证 Node.js 22/24；锁文件包含所有发布目标的原生依赖。
+- CI 在 macOS Apple Silicon、macOS Intel 和 Windows x64 上验证 Node.js 24；锁文件包含所有发布目标的原生依赖。
 
 ## 平台支持
 
@@ -74,7 +74,7 @@
 
 需要：
 
-- Node.js **22.12 或更高版本**（支持 Node.js 24）
+- Node.js **24 或更高版本**
 - npm 10 或更高版本
 - macOS 安装 Google Chrome，Windows 使用 Microsoft Edge；仅用于会话辅助刷新和打开 Apple 页面
 
@@ -224,7 +224,7 @@ Apple 偶尔会返回不完整列表。程序只隐藏远端暂时缺失的别�
 
 **`better-sqlite3` 无法加载原生模块怎么办？**
 
-使用 Node.js 22.12+，并在当前操作系统上重新执行 `npm install`。若仓库连同其他系统的 `node_modules` 一起复制，请先移除依赖目录再安装。
+使用 Node.js 24+，并在当前操作系统上重新执行 `npm install`。若仓库连同其他系统的 `node_modules` 一起复制，请先移除依赖目录再安装。
 
 **macOS 拦截未签名的本地构建怎么办？**
 

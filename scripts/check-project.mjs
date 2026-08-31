@@ -29,7 +29,7 @@ for (const [name, manifest] of manifests) {
     manifest.version === expectedVersion,
     `${name} version is ${manifest.version}; expected ${expectedVersion}`,
   );
-  check(manifest.engines?.node === '>=22.12', `${name} Node engine must remain >=22.12`);
+  check(manifest.engines?.node === '>=24', `${name} Node engine must remain >=24`);
 }
 if (releaseTag)
   check(releaseTag === `v${expectedVersion}`, `release tag ${releaseTag} must equal v${expectedVersion}`);

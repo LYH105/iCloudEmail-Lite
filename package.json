@@ -30,7 +30,7 @@
     "audit:dependencies": "npm audit --audit-level=high"
   },
   "engines": {
-    "node": ">=22.12"
+    "node": ">=24"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

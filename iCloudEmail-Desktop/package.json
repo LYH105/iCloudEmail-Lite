@@ -6,7 +6,7 @@
   "author": "LYH105",
   "main": "main.cjs",
   "engines": {
-    "node": ">=22.12"
+    "node": ">=24"
   },
   "scripts": {
     "start": "electron .",
